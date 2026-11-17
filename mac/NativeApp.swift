@@ -12,6 +12,10 @@ import Combine
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // "--tv-duzen" ile açılırsa TV Altyazı Düzeni penceresi doğrudan açılır.
+        if CommandLine.arguments.contains("--tv-duzen") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { TVLayoutEditor.shared.show() }
+        }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         let hasAccess = CGPreflightScreenCaptureAccess()
@@ -87,9 +91,42 @@ public final class NativeSubtitleServer: @unchecked Sendable {
     }
 
     public var onClientsChanged: ((Int) -> Void)?
+    /// TV bağlantı sayısı (izleyici olmayan) veya TV'nin bildirdiği düzen değiştiğinde ana iş parçacığında çağrılır.
+    public var onTVStatusChanged: (() -> Void)?
+
+    // TV'nin bildirdiği altyazı düzeni (protokol: docs/uzaktan-duzen-protokolu.md)
+    private var lastTVLayoutData: Data?
+    private var lastTVLayoutAt: Date?
+    private var layoutRev = 0
+    private static let layoutDefaultsKey = "gt_tv_layout"
+    private static let layoutAtDefaultsKey = "gt_tv_layout_at"
 
     public init(port: UInt16 = 8787) {
         self.port = port
+        if let d = UserDefaults.standard.data(forKey: Self.layoutDefaultsKey) {
+            lastTVLayoutData = d
+            lastTVLayoutAt = UserDefaults.standard.object(forKey: Self.layoutAtDefaultsKey) as? Date
+        }
+    }
+
+    /// Son bildirilen TV düzeni (JSON nesnesi) ve zamanı.
+    public var lastTVLayout: (settings: [String: Any], at: Date?)? {
+        queue.sync {
+            guard let d = lastTVLayoutData,
+                  let obj = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return nil }
+            return (obj, lastTVLayoutAt)
+        }
+    }
+
+    /// En az bir izleyici olmayan SSE istemcisi (TV) bağlı mı?
+    public var tvConnected: Bool { connectedClients > 0 }
+
+    public func sendLayout(mode: String, settings: [String: Any]) {
+        queue.async {
+            self.layoutRev += 1
+            let data = Data(Self.frame(event: "layout", json: ["mode": mode, "settings": settings, "rev": self.layoutRev]).utf8)
+            self.sendToAll(data)
+        }
     }
 
     public var connectedClients: Int {
@@ -170,7 +207,25 @@ public final class NativeSubtitleServer: @unchecked Sendable {
             if let data { buffer.append(data) }
             if let end = buffer.range(of: Data("\r\n\r\n".utf8)) {
                 let head = String(decoding: buffer[..<end.lowerBound], as: UTF8.self)
-                self.route(connection, requestLine: head.components(separatedBy: "\r\n").first ?? "")
+                let lines = head.components(separatedBy: "\r\n")
+                var contentLength = 0
+                for line in lines.dropFirst() {
+                    let kv = line.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
+                    if kv.count == 2, kv[0].lowercased() == "content-length", let n = Int(kv[1]) { contentLength = n }
+                }
+                if contentLength > 65536 {
+                    self.respondAndClose(connection, status: "413 Payload Too Large", body: "Too Large")
+                    return
+                }
+                let bodyStart = end.upperBound
+                if buffer.count - bodyStart >= contentLength {
+                    let body = contentLength > 0 ? Data(buffer[bodyStart..<(bodyStart + contentLength)]) : Data()
+                    self.route(connection, requestLine: lines.first ?? "", body: body)
+                } else if isComplete || error != nil {
+                    connection.cancel()
+                } else {
+                    self.readRequest(connection, buffer: buffer)
+                }
             } else if isComplete || error != nil || buffer.count > 65536 {
                 connection.cancel()
             } else {
@@ -179,14 +234,36 @@ public final class NativeSubtitleServer: @unchecked Sendable {
         }
     }
 
-    private func route(_ connection: NWConnection, requestLine: String) {
+    private func storeTVLayout(_ body: Data) -> Bool {
+        guard let obj = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any],
+              let settings = obj["settings"] as? [String: Any],
+              let data = try? JSONSerialization.data(withJSONObject: settings, options: [.sortedKeys]) else { return false }
+        let now = Date()
+        lastTVLayoutData = data
+        lastTVLayoutAt = now
+        UserDefaults.standard.set(data, forKey: Self.layoutDefaultsKey)
+        UserDefaults.standard.set(now, forKey: Self.layoutAtDefaultsKey)
+        if let h = onTVStatusChanged { DispatchQueue.main.async { h() } }
+        return true
+    }
+
+    private func route(_ connection: NWConnection, requestLine: String, body: Data = Data()) {
         let parts = requestLine.split(separator: " ")
         let target = parts.count > 1 ? String(parts[1]) : ""
         let path = target.components(separatedBy: "?")[0]
         let method = parts.first.map(String.init) ?? ""
 
         if method == "OPTIONS" {
-            respondAndClose(connection, status: "204 No Content")
+            respondAndClose(connection, status: "204 No Content", extraHeaders: "Access-Control-Allow-Methods: POST, GET, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\n")
+        } else if method == "POST" && path == "/tv-layout" {
+            if storeTVLayout(body) {
+                respondAndClose(connection, status: "200 OK", body: #"{"status":"ok"}"#, type: "application/json")
+            } else {
+                respondAndClose(connection, status: "400 Bad Request", body: #"{"status":"error"}"#, type: "application/json")
+            }
+        } else if method == "GET" && path == "/tv-layout" {
+            let json = lastTVLayoutData.map { String(decoding: $0, as: UTF8.self) } ?? "{}"
+            respondAndClose(connection, status: "200 OK", body: json, type: "application/json")
         } else if method == "GET" && path == "/events" {
             openStream(connection, viewer: target.contains("viewer=obs"))
         } else if method == "GET" && path == "/obs" {
@@ -219,9 +296,9 @@ public final class NativeSubtitleServer: @unchecked Sendable {
         }
     }
 
-    private func respondAndClose(_ connection: NWConnection, status: String, body: String = "", type: String? = "text/plain; charset=utf-8") {
+    private func respondAndClose(_ connection: NWConnection, status: String, body: String = "", type: String? = "text/plain; charset=utf-8", extraHeaders: String = "") {
         let data = Data(body.utf8)
-        var head = "HTTP/1.1 \(status)\r\nAccess-Control-Allow-Origin: *\r\n"
+        var head = "HTTP/1.1 \(status)\r\nAccess-Control-Allow-Origin: *\r\n" + extraHeaders
         if let type { head += "Content-Type: \(type)\r\n" }
         head += "Content-Length: \(data.count)\r\nConnection: close\r\n\r\n"
         connection.send(content: Data(head.utf8) + data, completion: .contentProcessed { _ in connection.cancel() })
@@ -262,6 +339,7 @@ public final class NativeSubtitleServer: @unchecked Sendable {
         if let handler = onClientsChanged {
             DispatchQueue.main.async { handler(count) }
         }
+        if let h = onTVStatusChanged { DispatchQueue.main.async { h() } }
     }
 
     private func broadcast(event: String, json: [String: Any]) {
@@ -2542,6 +2620,8 @@ final class AppState {
             guard let self else { return }
             if count > 0 { self.tvConnected = true }
         }
+        TVLayoutEditor.shared.server = server
+        server.onTVStatusChanged = { TVLayoutEditor.shared.pushStatus() }
         server.start()
         syncStyleToTV()
         syncChiakiConfig()
@@ -3520,6 +3600,13 @@ struct MainWindowView: View {
     // MARK: - 2. TV GÖRÜNÜMÜ SEKMESİ
     private var displayTabContent: some View {
         VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Button("TV Altyazı Düzeni…") { TVLayoutEditor.shared.show() }
+                    .font(.system(size: 11.5, weight: .semibold))
+                Text("TV'de Konum kaynağı 'TV ayarı' iken bu panel kullanılır; aşağıdaki eski ayarlar yalnız 'Mac' modunda geçerlidir.")
+                    .font(.system(size: 10)).foregroundStyle(Color.white.opacity(0.5))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             // Renk Seçici
             VStack(alignment: .leading, spacing: 5) {
                 Text("Yazı Rengi (TV Ekranı)")
@@ -5298,6 +5385,134 @@ extension Color {
     }
 }
 
+// MARK: - TV Altyazı Düzeni Düzenleyicisi (WKWebView, protokol: docs/uzaktan-duzen-protokolu.md)
+
+final class TVLayoutEditor: NSObject, WKScriptMessageHandler, NSWindowDelegate {
+    static let shared = TVLayoutEditor()
+    var server: NativeSubtitleServer?
+    private var window: NSWindow?
+    private var webView: WKWebView?
+    private var saved = false
+    private var lastPreviewAt = Date.distantPast
+    private var pendingPreview: [String: Any]?
+    private var previewTimer: Timer?
+
+    private final class WeakHandler: NSObject, WKScriptMessageHandler {
+        weak var target: WKScriptMessageHandler?
+        init(_ t: WKScriptMessageHandler) { target = t }
+        func userContentController(_ c: WKUserContentController, didReceive m: WKScriptMessage) { target?.userContentController(c, didReceive: m) }
+    }
+
+    func show() {
+        if let window { window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true); return }
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 760),
+                         styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        w.title = "TV Altyazı Düzeni"
+        w.minSize = NSSize(width: 800, height: 520)
+        w.isReleasedWhenClosed = false
+        w.delegate = self
+        w.center()
+
+        let editorDir = Bundle.main.resourceURL?.appendingPathComponent("tv-web", isDirectory: true)
+        let page = editorDir?.appendingPathComponent("editor/editor.html")
+        if let editorDir, let page, FileManager.default.fileExists(atPath: page.path) {
+            let cfg = WKWebViewConfiguration()
+            cfg.userContentController.add(WeakHandler(self), name: "altyazi")
+            let wv = WKWebView(frame: .zero, configuration: cfg)
+            wv.loadFileURL(page, allowingReadAccessTo: editorDir)
+            w.contentView = wv
+            webView = wv
+        } else {
+            let label = NSTextField(wrappingLabelWithString: "TV altyazı düzenleyicisi bu sürümde bulunamadı.\n\nUygulama paketinde tv-web/editor/editor.html dosyası yok. Uygulamayı mac/build-altyazi-koprusu.sh ile derleyip paket içinden açın.")
+            label.alignment = .center
+            label.font = .systemFont(ofSize: 15)
+            let box = NSView()
+            label.translatesAutoresizingMaskIntoConstraints = false
+            box.addSubview(label)
+            NSLayoutConstraint.activate([
+                label.centerXAnchor.constraint(equalTo: box.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: box.centerYAnchor),
+                label.widthAnchor.constraint(lessThanOrEqualToConstant: 520)
+            ])
+            w.contentView = box
+        }
+        saved = false
+        window = w
+        w.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        previewTimer?.invalidate(); previewTimer = nil; pendingPreview = nil
+        if !saved, let server { server.sendLayout(mode: "cancel", settings: [:]) }
+        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "altyazi")
+        webView = nil
+        window = nil
+    }
+
+    func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard let body = message.body as? [String: Any], let type = body["type"] as? String else { return }
+        let settings = body["settings"] as? [String: Any]
+        switch type {
+        case "ready":
+            let layout = server?.lastTVLayout
+            let json = layout.flatMap { try? JSONSerialization.data(withJSONObject: $0.settings, options: [.sortedKeys]) }
+                .map { String(decoding: $0, as: UTF8.self) } ?? "null"
+            let connected = (server?.tvConnected ?? false) ? "true" : "false"
+            webView?.evaluateJavaScript("window.__editorLoad && window.__editorLoad(\(json), \(connected))", completionHandler: nil)
+            pushStatus()
+            // Yalnız geliştirme testi: ALTYAZI_EDITOR_SELFTEST=1 iken sayfanın kendi kontrolleri kullanıcı gibi değiştirilip kaydedilir.
+            if ProcessInfo.processInfo.environment["ALTYAZI_EDITOR_SELFTEST"] == "1" {
+                let js = """
+                (function(){function set(id,v){var e=document.getElementById(id);e.value=v;e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('change',{bubbles:true}));}
+                setTimeout(function(){set('y',520);},1500);
+                setTimeout(function(){set('fontSize',60);set('x',700);},3500);
+                setTimeout(function(){document.getElementById('save').click();},6500);})();
+                """
+                webView?.evaluateJavaScript(js, completionHandler: nil)
+            }
+        case "preview":
+            guard let settings else { return }
+            let since = Date().timeIntervalSince(lastPreviewAt)
+            if since >= 0.1 {
+                lastPreviewAt = Date()
+                server?.sendLayout(mode: "preview", settings: settings)
+            } else {
+                pendingPreview = settings
+                if previewTimer == nil {
+                    previewTimer = Timer.scheduledTimer(withTimeInterval: 0.1 - since, repeats: false) { [weak self] _ in
+                        guard let self else { return }
+                        self.previewTimer = nil
+                        if let p = self.pendingPreview {
+                            self.pendingPreview = nil
+                            self.lastPreviewAt = Date()
+                            self.server?.sendLayout(mode: "preview", settings: p)
+                        }
+                    }
+                }
+            }
+        case "save":
+            guard let settings else { return }
+            previewTimer?.invalidate(); previewTimer = nil; pendingPreview = nil
+            saved = true
+            server?.sendLayout(mode: "save", settings: settings)
+        case "cancel":
+            previewTimer?.invalidate(); previewTimer = nil; pendingPreview = nil
+            server?.sendLayout(mode: "cancel", settings: [:])
+        default: break
+        }
+    }
+
+    /// Bağlantı sayısı veya TV'nin bildirdiği düzen değiştiğinde çağrılır.
+    func pushStatus() {
+        guard let webView, let server else { return }
+        let connected = server.tvConnected ? "true" : "false"
+        let iso = server.lastTVLayout?.at.map { ISO8601DateFormatter().string(from: $0) }
+        let isoJS = iso.map { "\"\($0)\"" } ?? "null"
+        webView.evaluateJavaScript("window.__editorStatus && window.__editorStatus(\(connected), \(isoJS))", completionHandler: nil)
+    }
+}
+
 @main
 struct GameTranslatorNativeApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
@@ -5307,5 +5522,11 @@ struct GameTranslatorNativeApp: App {
                 .frame(minWidth: 970, idealWidth: 1010, minHeight: 640, idealHeight: 680)
         }
         .windowStyle(.hiddenTitleBar)
+        .commands {
+            CommandGroup(after: .newItem) {
+                Button("TV Altyazı Düzeni…") { TVLayoutEditor.shared.show() }
+                    .keyboardShortcut("l", modifiers: [.command, .shift])
+            }
+        }
     }
 }

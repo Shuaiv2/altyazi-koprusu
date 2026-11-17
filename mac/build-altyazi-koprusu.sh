@@ -42,7 +42,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0.0</string>
+	<string>1.1.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
@@ -96,6 +96,29 @@ if [ -d "$ROOT/scripts/ps5-register/node_modules" ]; then
   cp -R "$ROOT/scripts/ps5-register/node_modules" "$RES/ps5-register/node_modules"
 else
   echo "UYARI: ps5-register/node_modules yok; PS5 eşleştirme çalışmaz."
+fi
+
+# TV altyazı düzenleyicisi (tv/editor/* + FILES.txt'te listelenen tv/ göreli dosyalar)
+EDITOR_SRC="$ROOT/tv/editor"
+if [ -d "$EDITOR_SRC" ]; then
+  mkdir -p "$RES/tv-web/editor"
+  cp -R "$EDITOR_SRC/." "$RES/tv-web/editor/"
+  if [ -f "$EDITOR_SRC/FILES.txt" ]; then
+    while IFS= read -r rel || [ -n "$rel" ]; do
+      rel="${rel%$'\r'}"
+      case "$rel" in ""|\#*) continue ;; esac
+      if [ ! -f "$ROOT/tv/$rel" ]; then
+        echo "HATA: tv/editor/FILES.txt içinde listelenen dosya yok: tv/$rel" >&2
+        exit 1
+      fi
+      mkdir -p "$RES/tv-web/$(dirname "$rel")"
+      cp "$ROOT/tv/$rel" "$RES/tv-web/$rel"
+    done < "$EDITOR_SRC/FILES.txt"
+  else
+    echo "UYARI: tv/editor/FILES.txt yok; yalnızca tv/editor/* kopyalandı."
+  fi
+else
+  echo "UYARI: tv/editor yok; TV altyazı düzenleyicisi pakete eklenmedi."
 fi
 
 # Lisans bildirimleri

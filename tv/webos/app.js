@@ -6,7 +6,7 @@
   'use strict';
 
   // TV uygulamasının sürümü: appinfo.json, tv-tizen/config.xml ve tv-android/app/build.gradle ile aynı tutulur.
-  var APP_VERSION = '1.2.0';
+  var APP_VERSION = '1.3.0';
   var t = window.t;
   var config = window.GAMETRANSLATOR_CONFIG || window.GAMETRANSLATOR_CONFIG || {};
   var platform = window.GAMETRANSLATOR_PLATFORM || window.GAMETRANSLATOR_PLATFORM;
@@ -50,6 +50,11 @@
 
   // TV altyazı ayarları (sayfa pikseli, bkz. subtitle-settings.js). Kayıtlı ayar yoksa eski "bottom" anahtarı taşınır.
   var subSettings = SUB.defaults(1920, 1080);
+  var macDraft = null; // Mac'ten gelen geçici önizleme taslağı (kalıcı değildir)
+  var macTimer = null;
+  var macSampleTimer = null;
+  var macBadge = null;
+  var layoutRev = -1;
   var draft = null; // ayar ekranında düzenlenen taslak; Kaydet'e kadar kalıcı değildir
   var tvApplied = false;
   var pcStyle = {}; // Mac'in son gönderdiği "style" (konum kaynağı Mac olunca yeniden uygulanır)
@@ -359,7 +364,7 @@
   function pageH() { return window.innerHeight || 1080; }
 
   // Ayar ekranı açıkken taslak, yoksa kayıtlı ayar geçerlidir.
-  function curSub() { return draft || subSettings; }
+  function curSub() { return draft || macDraft || subSettings; }
   function tvActive() { return curSub().positionSource === 'tv'; }
 
   function loadSubSettings() {
@@ -369,47 +374,13 @@
     return old ? SUB.migrate(Number(old), pageH()) : SUB.defaults(pageW(), pageH());
   }
 
-  function outlineShadow(kind) {
-    var shadow = '0 2px 4px #000';
-    var outline = '-2px 0 #000, 2px 0 #000, 0 -2px #000, 0 2px #000, -2px -2px #000, 2px -2px #000, -2px 2px #000, 2px 2px #000';
-    if (kind === 'none') return 'none';
-    if (kind === 'shadow') return shadow;
-    if (kind === 'outline') return outline;
-    return outline + ', ' + shadow;
-  }
-
-  // Kutuyu GT_SUBSETTINGS.computeRect ile yerleştirir; içerik dikeyde sığmazsa yazıyı 2 px adımlarla küçültür.
+  // Kutuyu GT_SUBLAYOUT ile yerleştirir (font küçültme döngüsü orada); örtü ve sığdırma temizliği burada kalır.
   function applySubtitleLayout() {
-    var s = curSub(), vw = pageW(), vh = pageH();
-    var el = $('subtitle'), text = $('subtitle-text');
+    var s = curSub();
     $('subtitle-cover').className = 'hidden';
     unfit();
-    text.style.color = s.textColor;
-    text.style.background = SUB.rgba(s.bgColor, s.bgOpacity);
-    text.style.fontWeight = s.bold ? '700' : '600';
-    text.style.textShadow = outlineShadow(s.outline);
-    text.style.textAlign = currentParagraphs ? 'left' : s.align;
-    text.style.verticalAlign = 'top';
-    el.style.textAlign = s.align;
-    el.style.lineHeight = '0';
-    el.style.right = 'auto';
-    el.style.bottom = 'auto';
-    el.style.transform = 'none';
-    el.style.webkitTransform = 'none';
-    var margin = Math.min(s.margin, Math.floor(vw / 2) - 1);
-    var size = s.fontSize, rect;
-    for (var guard = 0; guard < 60; guard++) {
-      text.style.fontSize = size + 'px';
-      rect = SUB.computeRect(s, vw, vh, 0);
-      el.style.left = rect.left + 'px';
-      el.style.width = rect.width + 'px';
-      el.style.top = '0px';
-      contentHeight = text.offsetHeight;
-      if (contentHeight <= vh - 2 * margin || size <= 18) break;
-      size -= 2;
-    }
-    rect = SUB.computeRect(s, vw, vh, contentHeight);
-    el.style.top = rect.top + 'px';
+    var r = window.GT_SUBLAYOUT.apply($('subtitle'), $('subtitle-text'), s, pageW(), pageH(), { paragraphs: currentParagraphs });
+    contentHeight = r.contentHeight;
   }
 
   // Konum kaynağı Mac olunca TV'nin yazdığı satır içi stiller silinir.
@@ -662,6 +633,78 @@
     layout();
   }
 
+  // --- Mac'ten uzaktan düzen (bkz. docs/uzaktan-duzen-protokolu.md) ---
+
+  // TV'nin kayıtlı ayarını Mac'e bildirir (Content-Type text/plain: WebView'de preflight oluşmaz).
+  function reportLayout() {
+    if (!server) return;
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', server + '/tv-layout', true);
+      xhr.setRequestHeader('Content-Type', 'text/plain');
+      xhr.onerror = function () {};
+      xhr.send(JSON.stringify({ settings: SUB.sanitize(subSettings, pageW(), pageH()), source: 'tv', app: APP_VERSION }));
+    } catch (e) { /* bildirim başarısızsa ayar yine de TV'de kayıtlıdır */ }
+  }
+
+  function setMacBadge(on) {
+    if (on && !macBadge) {
+      macBadge = document.createElement('div');
+      macBadge.textContent = t('macEditing');
+      macBadge.style.cssText = 'position:absolute;top:24px;right:24px;z-index:30;padding:8px 18px;border-radius:12px;' +
+        'background:rgba(20,20,24,0.85);color:#F5B83D;font-size:24px;font-weight:600;';
+      document.body.appendChild(macBadge);
+    } else if (!on && macBadge) {
+      if (macBadge.parentNode) macBadge.parentNode.removeChild(macBadge);
+      macBadge = null;
+    }
+  }
+
+  // Önizlemeyi kapatır; örnek satır (başka sebeple açık değilse) gizlenir, gerçek altyazılar yeniden akar.
+  function endMacPreview() {
+    clearTimeout(macTimer);
+    clearTimeout(macSampleTimer);
+    macTimer = null;
+    macSampleTimer = null;
+    setMacBadge(false);
+    if (!macDraft && !macSampleActive) return;
+    macDraft = null;
+    macSampleActive = false;
+    refreshSample();
+    if ($('subtitle').className !== 'hidden') layout();
+  }
+  var macSampleActive = false;
+
+  function handleLayout(data) {
+    // TV'deki düzenleme önceliklidir.
+    if (ed.open) return;
+    if (typeof data.rev === 'number') {
+      if (data.rev < layoutRev) return;
+      layoutRev = data.rev;
+    }
+    if (data.mode === 'cancel') return endMacPreview();
+    if (data.mode !== 'preview' && data.mode !== 'save') return;
+    var s = SUB.sanitize(data.settings, pageW(), pageH());
+    s.positionSource = 'tv';
+    clearTimeout(macTimer);
+    clearTimeout(macSampleTimer);
+    macSampleActive = true;
+    if (data.mode === 'preview') {
+      macDraft = s;
+      setMacBadge(true);
+      macTimer = setTimeout(endMacPreview, 60000);
+      showSample(t('sampleSubtitle'));
+      return;
+    }
+    macDraft = null;
+    setMacBadge(false);
+    subSettings = s;
+    save('subStyle', SUB.serialize(subSettings, pageW(), pageH()));
+    showSample(t('sampleSubtitle'));
+    macSampleTimer = setTimeout(endMacPreview, 3000);
+    reportLayout();
+  }
+
   // --- Sunucu bağlantısı (Server-Sent Events) ---
 
   function onEvent(name, handler) {
@@ -716,6 +759,8 @@
     eventSource = new EventSource(address + '/events');
     eventSource.onopen = function () {
       failures = 0;
+      layoutRev = -1;
+      reportLayout();
       cancelScan();
       clearTimeout(dropTimer);
       dropTimer = null;
@@ -759,6 +804,7 @@
     onEvent('screen', function (data) { showScreen(data.items, data.duration); });
     onEvent('screen-clear', hideScreen);
     onEvent('style', applyStyle);
+    onEvent('layout', handleLayout);
     onEvent('speech', function (data) { if (data.url) playSpeech(server + data.url); });
     onEvent('speech-stop', stopSpeech);
   }
@@ -1261,6 +1307,7 @@
   // --- "Altyazı Konumu ve Görünümü" ekranı ---
 
   function openSettings() {
+    endMacPreview();
     ed.open = true;
     ed.index = 0;
     ed.move = false;
@@ -1293,6 +1340,7 @@
   function saveSettings() {
     subSettings = SUB.sanitize(draft, pageW(), pageH());
     save('subStyle', SUB.serialize(subSettings, pageW(), pageH()));
+    reportLayout();
     menu.msg = t('sSaved');
     closeSettings(true);
   }
