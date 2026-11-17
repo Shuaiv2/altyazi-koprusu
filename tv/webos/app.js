@@ -6,14 +6,18 @@
   'use strict';
 
   // TV uygulamasının sürümü: appinfo.json, tv-tizen/config.xml ve tv-android/app/build.gradle ile aynı tutulur.
-  var APP_VERSION = '1.0.5';
+  var APP_VERSION = '1.1.0-tr';
   var t = window.t;
   var config = window.GAMETRANSLATOR_CONFIG || window.GAMETRANSLATOR_CONFIG || {};
   var platform = window.GAMETRANSLATOR_PLATFORM || window.GAMETRANSLATOR_PLATFORM;
   var KEY = { RED: 403, GREEN: 404, BLUE: 406, LEFT: 37, UP: 38, RIGHT: 39, DOWN: 40, OK: 13, BACK: platform.backKey };
 
+  var SUB = window.GT_SUBSETTINGS;
   var server = null;
   var eventSource = null;
+  // Altyazıyı kullanıcı durdurduysa (menüden) bağlantı da tarama da kapalı kalır. Kaydedilmez: uygulama hep çalışır açılır.
+  var stopped = false;
+  var connState = 'connecting';
   // Kumandayla seçilen port kayıtlıysa o kullanılır, yoksa PS5 otomatik aranır.
   var savedPort = Number(load('hdmi'));
   var hdmiPort = savedPort || 1;
@@ -44,6 +48,20 @@
   var hideTimer = null;
   var panelTimer = null;
 
+  // TV altyazı ayarları (sayfa pikseli, bkz. subtitle-settings.js). Kayıtlı ayar yoksa eski "bottom" anahtarı taşınır.
+  var subSettings = SUB.defaults(1920, 1080);
+  var draft = null; // ayar ekranında düzenlenen taslak; Kaydet'e kadar kalıcı değildir
+  var tvApplied = false;
+  var pcStyle = {}; // Mac'in son gönderdiği "style" (konum kaynağı Mac olunca yeniden uygulanır)
+  var subState = { lastAt: 0, shownText: null };
+  var currentParagraphs = false;
+  var contentHeight = 0;
+  var sampleShown = false;
+  var testOn = false;
+  var provider = '';
+  var lastSubText = '';
+  var lastSubAt = 0;
+
   // Bilgisayarın "temizle" olayı satırı bundan erken kaldırmaz: oyundaki satır çeviri gelirken kalkmışsa yazı TV'de
   // bir an görünüp kayboluyordu. Süre, bilgisayarın okuma süresi kuralıyla aynıdır; üst sınırı daha kısadır.
   var HOLD_MAX_MS = 5000;
@@ -53,14 +71,14 @@
   var dropTimer = null;
 
   // Panelde görünen tanı bilgisi: "yazı TV'ye gelmiyor" bildirimlerinde sebebi buradan okuruz.
-  var diag = { subtitles: 0, clears: 0, drops: 0, backgrounded: 0, lastHide: '-', place: '-', error: '' };
+  var diag = { subtitles: 0, clears: 0, drops: 0, stale: 0, backgrounded: 0, lastHide: '-', place: '-', error: '' };
 
   function $(id) { return document.getElementById(id); }
 
   function renderDiag() {
     var el = $('st-diag');
     if (!el) return;
-    el.textContent = 'sub ' + diag.subtitles + ' · clear ' + diag.clears + ' · drop ' + diag.drops +
+    el.textContent = 'sub ' + diag.subtitles + ' · clear ' + diag.clears + ' · drop ' + diag.drops + ' · stale ' + diag.stale +
       ' · bg ' + diag.backgrounded + ' · hide ' + diag.lastHide + ' · ' + diag.place +
       (window.__screenSaverStatus ? ' · saver ' + window.__screenSaverStatus : '') +
       (diag.error ? ' · err ' + diag.error : '');
@@ -151,6 +169,7 @@
         showHdmi(port);
       }
       setStatus('st-hdmi', port + ' — ' + label + ' (' + t('auto') + ')');
+      if (menu.open && !ed.open) renderMenu();
     });
   }
 
@@ -170,6 +189,8 @@
 
   // paragraphs: görev paneli gibi başlık ve maddeli yazılar satır satır, sola yaslı gösterilir.
   function showSubtitle(text, duration, box, paragraphs, source, line) {
+    // Test ya da ayar ekranı açıkken gerçek altyazı onların yerine geçmez.
+    if (sampleShown) return;
     // source: oyunun altyazısının gerçek yeri (örtme yerleşiminde çeviri tam bu alana sığdırılır).
     currentSource = paragraphs ? null : validBox(source);
     currentLine = typeof line === 'number' && line > 0 ? line : 0;
@@ -179,12 +200,16 @@
     shownAt = Date.now();
     holdUntil = shownAt + Math.min(HOLD_MAX_MS, 2000 + text.length * 60);
     currentBox = validBox(box);
+    currentParagraphs = paragraphs === true;
+    subState.shownText = text;
     setSubtitleText($('subtitle-text'), text, paragraphs);
     $('subtitle-text').style.whiteSpace = paragraphs ? 'pre-line' : '';
     $('subtitle-text').style.textAlign = paragraphs ? 'left' : '';
     $('subtitle').className = '';
     layout();
-    setStatus('st-last', text.length > 40 ? text.slice(0, 40) + '…' : text);
+    lastSubText = text.length > 40 ? text.slice(0, 40) + '…' : text;
+    lastSubAt = Date.now();
+    renderLast();
     notePlace();
     clearTimeout(hideTimer);
     // Geçersiz ya da çok kısa süre yazıyı gösterir göstermez kaldırmasın.
@@ -227,7 +252,9 @@
 
   // reason: yazıyı neyin kaldırdığı; panelde görünen süreyle birlikte sebebi gösterir.
   function hideSubtitle(reason) {
+    if (sampleShown && reason !== 'sample') return;
     clearTimeout(hideTimer);
+    subState.shownText = null;
     if ($('subtitle').className !== 'hidden') {
       diag.lastHide = (reason || '?') + ' ' + (Date.now() - shownAt) + 'ms';
       renderDiag();
@@ -245,6 +272,14 @@
     if (left <= 0 || $('subtitle').className === 'hidden') return hideSubtitle('clear');
     clearTimeout(hideTimer);
     hideTimer = setTimeout(function () { hideSubtitle('clear-held'); }, left);
+  }
+
+  // Aynı metin yeniden geldi: yeniden çizilmez, yalnız kaldırma süresi uzar.
+  function extendSubtitle(text, duration) {
+    holdUntil = Date.now() + Math.min(HOLD_MAX_MS, 2000 + text.length * 60);
+    clearTimeout(hideTimer);
+    var ms = duration > 0 ? Math.max(1000, duration) : Math.min(8000, 2000 + text.length * 60);
+    hideTimer = setTimeout(function () { hideSubtitle('timer'); }, ms);
   }
 
   function showPrevious(text) {
@@ -317,8 +352,126 @@
     layout();
   }
 
+  // --- TV altyazı ayarı: tek yerleşim yolu ---
+  // Gerçek altyazılar, test altyazısı ve ayar ekranındaki önizleme hep bu işlevden geçer (applySubtitleLayout).
+
+  function pageW() { return window.innerWidth || 1920; }
+  function pageH() { return window.innerHeight || 1080; }
+
+  // Ayar ekranı açıkken taslak, yoksa kayıtlı ayar geçerlidir.
+  function curSub() { return draft || subSettings; }
+  function tvActive() { return curSub().positionSource === 'tv'; }
+
+  function loadSubSettings() {
+    var s = SUB.parse(load('subStyle'), pageW(), pageH());
+    if (s) return s;
+    var old = load('bottom') || load('appBottom');
+    return old ? SUB.migrate(Number(old), pageH()) : SUB.defaults(pageW(), pageH());
+  }
+
+  function outlineShadow(kind) {
+    var shadow = '0 2px 4px #000';
+    var outline = '-2px 0 #000, 2px 0 #000, 0 -2px #000, 0 2px #000, -2px -2px #000, 2px -2px #000, -2px 2px #000, 2px 2px #000';
+    if (kind === 'none') return 'none';
+    if (kind === 'shadow') return shadow;
+    if (kind === 'outline') return outline;
+    return outline + ', ' + shadow;
+  }
+
+  // Kutuyu GT_SUBSETTINGS.computeRect ile yerleştirir; içerik dikeyde sığmazsa yazıyı 2 px adımlarla küçültür.
+  function applySubtitleLayout() {
+    var s = curSub(), vw = pageW(), vh = pageH();
+    var el = $('subtitle'), text = $('subtitle-text');
+    $('subtitle-cover').className = 'hidden';
+    unfit();
+    text.style.color = s.textColor;
+    text.style.background = SUB.rgba(s.bgColor, s.bgOpacity);
+    text.style.fontWeight = s.bold ? '700' : '600';
+    text.style.textShadow = outlineShadow(s.outline);
+    text.style.textAlign = currentParagraphs ? 'left' : s.align;
+    text.style.verticalAlign = 'top';
+    el.style.textAlign = s.align;
+    el.style.lineHeight = '0';
+    el.style.right = 'auto';
+    el.style.bottom = 'auto';
+    el.style.transform = 'none';
+    el.style.webkitTransform = 'none';
+    var margin = Math.min(s.margin, Math.floor(vw / 2) - 1);
+    var size = s.fontSize, rect;
+    for (var guard = 0; guard < 60; guard++) {
+      text.style.fontSize = size + 'px';
+      rect = SUB.computeRect(s, vw, vh, 0);
+      el.style.left = rect.left + 'px';
+      el.style.width = rect.width + 'px';
+      el.style.top = '0px';
+      contentHeight = text.offsetHeight;
+      if (contentHeight <= vh - 2 * margin || size <= 18) break;
+      size -= 2;
+    }
+    rect = SUB.computeRect(s, vw, vh, contentHeight);
+    el.style.top = rect.top + 'px';
+  }
+
+  // Konum kaynağı Mac olunca TV'nin yazdığı satır içi stiller silinir.
+  function clearTvStyles() {
+    var el = $('subtitle'), text = $('subtitle-text');
+    el.style.width = '';
+    el.style.lineHeight = '';
+    el.style.textAlign = '';
+    text.style.textShadow = '';
+    text.style.verticalAlign = '';
+    text.style.textAlign = '';
+    text.style.color = '';
+    text.style.background = '';
+    text.style.fontWeight = '';
+    text.style.fontSize = '';
+  }
+
+  // Test altyazısı ve ayar önizlemesi gerçek #subtitle öğesini kullanır.
+  function showSample(text) {
+    sampleShown = true;
+    clearTimeout(hideTimer);
+    hidePrevious();
+    currentBox = null;
+    currentSource = null;
+    currentLine = 0;
+    currentParagraphs = false;
+    subState.shownText = null;
+    setSubtitleText($('subtitle-text'), text, false);
+    $('subtitle-text').style.whiteSpace = '';
+    $('subtitle-text').style.textAlign = '';
+    $('subtitle').className = '';
+    layout();
+  }
+
+  function refreshSample() {
+    if (ed.open) showSample(t('sampleSubtitle'));
+    else if (testOn) showSample(t('localTest'));
+    else if (sampleShown) {
+      sampleShown = false;
+      hideSubtitle('sample');
+    }
+  }
+
+  function toggleTest() {
+    testOn = !testOn;
+    refreshSample();
+    if (menu.open && !ed.open) renderMenu();
+  }
+
   // Altyazıyı seçilen yerleşime göre konumlar. İngilizce altyazının yeri bilinmiyorsa sabit yükseklik kullanılır.
   function layout() {
+    if (tvActive()) {
+      tvApplied = true;
+      applySubtitleLayout();
+      return;
+    }
+    if (tvApplied) {
+      // TV ayarından Mac'e dönüldü: TV'nin yazdığı satır içi stiller silinir, Mac'in son stili yeniden uygulanır.
+      tvApplied = false;
+      clearTvStyles();
+      applyStyle(pcStyle);
+    }
     var el = $('subtitle');
     var cover = $('subtitle-cover');
     var box = placement === 'fixed' ? null : currentBox;
@@ -472,6 +625,14 @@
   }
 
   function applyStyle(style) {
+    for (var k in style) if (Object.prototype.hasOwnProperty.call(style, k)) pcStyle[k] = style[k];
+    if (typeof style.provider === 'string' && style.provider) setProvider(style.provider);
+    // Konum kaynağı TV ise Mac'in yazı boyu, renk, zemin, kalınlık, konum ve yerleşimi ana altyazıda yok sayılır.
+    if (tvActive()) {
+      if (typeof style.speakerColor === 'string') speakerColor = style.speakerColor;
+      layout();
+      return;
+    }
     if (style.fontSize) {
       baseFontSize = style.fontSize;
       $('subtitle-text').style.fontSize = style.fontSize + 'px';
@@ -501,15 +662,6 @@
     layout();
   }
 
-  function nudgeSubtitle(step) {
-    // Yer oyundaki altyazıya bağlıysa kumandayla taşınmaz.
-    if (placement !== 'fixed') return;
-    setBottom(bottomPercent + step);
-    save('bottom', bottomPercent);
-    // Nereye gittiği görülsün diye yazı yoksa örnek gösterilir.
-    if ($('subtitle').className === 'hidden') showSubtitle(t('positionPreview'), 2500);
-  }
-
   // --- Sunucu bağlantısı (Server-Sent Events) ---
 
   function onEvent(name, handler) {
@@ -529,25 +681,47 @@
     });
   }
 
+  function shortAddr(address) {
+    return String(address || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+  }
+
+  // Bağlantı durumunu anlaşılır Türkçe (ya da İngilizce) cümleyle yazar.
+  function renderConn() {
+    var addr = shortAddr(server);
+    var text, cls = '';
+    if (connState === 'stopped') { text = t('connStopped'); cls = 'bad'; }
+    else if (connState === 'unsupported') { text = t('noEventSource'); cls = 'bad'; }
+    else if (connState === 'connected') { text = t('connected'); cls = 'ok'; }
+    else if (connState === 'failed') { text = t('connFailed').replace('{addr}', addr) + (scanning ? t('connScanning') : ''); cls = 'bad'; }
+    else if (connState === 'none') { text = t('connNone'); cls = 'bad'; }
+    else { text = t('connecting') + (addr ? ' (' + addr + ')' : ''); cls = 'muted'; }
+    setStatus('st-conn', text, cls);
+  }
+
   function connect(address) {
     if (demoRunning()) stopDemo();
     if (eventSource) eventSource.close();
     if (address !== server) failures = 0;
+    stopped = false;
     server = address;
     $('waiting').className = 'hidden';
-    setStatus('st-server', address);
+    setStatus('st-server', shortAddr(address));
     if (!window.EventSource) {
-      setStatus('st-conn', t('noEventSource'), 'bad');
+      connState = 'unsupported';
+      renderConn();
       return;
     }
-    setStatus('st-conn', t('connecting'), 'muted');
+    connState = 'connecting';
+    renderConn();
     eventSource = new EventSource(address + '/events');
     eventSource.onopen = function () {
       failures = 0;
       cancelScan();
       clearTimeout(dropTimer);
       dropTimer = null;
-      setStatus('st-conn', t('connected'), 'ok');
+      subState.lastAt = 0;
+      connState = 'connected';
+      renderConn();
     };
     eventSource.onerror = function () {
       // Bağlantı kısa süre içinde geri gelmezse eski altyazı ekranda asılı kalmasın. Bir anlık kopma yazıyı silmez.
@@ -560,14 +734,26 @@
           hideScreen();
         }, DROP_HIDE_MS);
       }
-      setStatus('st-conn', t('reconnecting'), 'bad');
+      connState = 'failed';
+      renderConn();
       // Bilgisayarın adresi değişmiş olabilir.
       noteFailure();
     };
     onEvent('subtitle', function (data) {
       diag.subtitles++;
       renderDiag();
-      if (data.text) showSubtitle(data.text, data.duration, data.box, data.paragraphs === true, data.source, data.line);
+      if (typeof data.provider === 'string' && data.provider) setProvider(data.provider);
+      if (!data.text || sampleShown) return;
+      // Geç gelen eski sonuç atılır; ekrandaki metnin aynısı yalnız süreyi uzatır.
+      var verdict = SUB.acceptSubtitle(subState, data);
+      if (verdict === 'drop') {
+        diag.stale++;
+        renderDiag();
+        return;
+      }
+      if (typeof data.at === 'number') subState.lastAt = data.at;
+      if (verdict === 'extend') return extendSubtitle(data.text, data.duration);
+      showSubtitle(data.text, data.duration, data.box, data.paragraphs === true, data.source, data.line);
     });
     onEvent('clear', onClear);
     onEvent('screen', function (data) { showScreen(data.items, data.duration); });
@@ -620,7 +806,7 @@
   // Bekleyen tarama daha erken başlayacaksa korunur; EventSource birkaç saniyede bir yeniden denediği için sayaç
   // baştan kurulursa tarama hiç başlamazdı.
   function scheduleScan(delay) {
-    if (scanning) return;
+    if (scanning || stopped) return;
     if (delay === undefined) delay = SCAN_PAUSE_MS;
     var due = Date.now() + delay;
     if (scanTimer !== null && scanDue <= due) return;
@@ -699,9 +885,10 @@
   }
 
   function scanForServer() {
-    if (scanning) return;
+    if (scanning || stopped) return;
     cancelScan();
     scanning = true;
+    renderConn();
     scanSubnets(function (subnets) {
       var addresses = [];
       for (var s = 0; s < subnets.length; s++) {
@@ -709,12 +896,17 @@
       }
       var next = 0, active = 0, found = false;
       function pump() {
+        if (stopped) {
+          scanning = false;
+          return;
+        }
         while (!found && active < SCAN_PARALLEL && next < addresses.length) {
           active++;
           tryAddress(addresses[next++]);
         }
         if (!found && !active && next >= addresses.length) {
           scanning = false;
+          renderConn();
           scheduleScan();
         }
       }
@@ -725,10 +917,12 @@
           if (!ok) return pump();
           found = true;
           scanning = false;
+          renderConn();
+          if (stopped) return;
           // Bulunan adres kaydedilir: TV bir sonraki açılışta eski adrese takılmasın.
           save('server', address);
           // Aynı bilgisayarsa EventSource kendisi yeniden bağlanır; kapanıp vazgeçtiyse (CLOSED) yeniden kurulur.
-          if (address !== server || (eventSource && eventSource.readyState === 2)) connect(address);
+          if (address !== server || !eventSource || eventSource.readyState === 2) connect(address);
         });
       }
       pump();
@@ -783,7 +977,7 @@
     platform.exit();
   }
 
-  // --- Panel ve kumanda ---
+  // --- Panel, menü ve kumanda ---
 
   // "1–4: HDMI girişi · 0: …" satırını tuş başına bir satıra böler; tuş adı vurgu renginde.
   function formatKeys() {
@@ -802,38 +996,553 @@
     }
   }
 
+  var menu = { open: false, index: 0, ip: null, msg: '', timer: null };
+  // Altyazı ayarı ekranı: open, odaktaki satır, taşıma kipi ve adımı, sayı girişi, panelin kaydırma payı.
+  var ed = { open: false, index: 0, move: false, step: 40, num: null, scroll: 0 };
+
+  function setProvider(value) {
+    provider = String(value).slice(0, 60);
+    renderProvider();
+  }
+
+  function renderProvider() {
+    var el = $('st-provider');
+    el.textContent = provider || t('providerUnknown');
+    el.className = provider ? '' : 'muted';
+  }
+
+  function renderLast() {
+    var el = $('st-last');
+    if (!lastSubText) { el.textContent = '-'; return; }
+    el.textContent = lastSubText + ' · ' + Math.max(0, Math.round((Date.now() - lastSubAt) / 1000)) + ' ' + t('secondsAgo');
+  }
+
+  function renderStatus() {
+    renderLast();
+    renderConn();
+    renderProvider();
+  }
+
   // Panel açıkken bekleme kutusu kapanır: ikisi üst üste binince yazılar okunmuyor.
+  // Menü açık değilken yalnız durum satırları kısa süre görünür (autoHide).
   function showPanel(autoHide) {
+    if (menu.open) return;
     $('waiting').className = 'hidden';
-    $('panel').className = '';
+    $('panel').className = 'info';
+    renderStatus();
     clearTimeout(panelTimer);
     if (autoHide) panelTimer = setTimeout(hidePanel, 8000);
   }
 
   function hidePanel() {
+    clearTimeout(panelTimer);
+    if (ed.open) closeSettings(false);
+    menu.open = false;
+    menu.ip = null;
+    clearInterval(menu.timer);
+    menu.timer = null;
     $('panel').className = 'hidden';
     if (!server && !demoRunning()) $('waiting').className = '';
   }
 
-  function togglePanel() {
-    if ($('panel').className === 'hidden') showPanel(false); else hidePanel();
+  function openMenu() {
+    if (menu.open) return;
+    $('waiting').className = 'hidden';
+    clearTimeout(panelTimer);
+    menu.open = true;
+    menu.index = 0;
+    menu.ip = null;
+    menu.msg = '';
+    $('panel').className = 'menu';
+    renderStatus();
+    renderMenu();
+    menu.timer = setInterval(renderLast, 1000);
   }
 
-  // Sayı tuşu olmayan kumandalar için: panel açıkken sol ve sağ HDMI girişini değiştirir.
+  // --- Ortak satır çizimi ---
+
+  function renderRows(container, items, index) {
+    container.innerHTML = '';
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var row = document.createElement('div');
+      row.className = 'mrow' + (item.cls ? ' ' + item.cls : '') + (i === index ? ' focused' : '') + (item.editing ? ' editing' : '');
+      var label = document.createElement('span');
+      label.className = 'mlabel';
+      label.textContent = item.label;
+      var value = document.createElement('span');
+      value.className = 'mvalue';
+      if (item.node) item.node(value); else value.textContent = item.value || '';
+      row.appendChild(label);
+      row.appendChild(value);
+      container.appendChild(row);
+    }
+  }
+
+  function cycle(list, current, dir) {
+    var at = -1;
+    for (var i = 0; i < list.length; i++) if (list[i] === current) at = i;
+    return list[(at + dir + list.length * 2) % list.length];
+  }
+
+  function wrap(index, dir, length) { return (index + dir + length) % length; }
+
+  // --- Ana menü ---
+
+  function toggleRun() {
+    if (stopped) startSubtitles(); else stopSubtitles();
+  }
+
+  // Altyazıları durdurur: bağlantı kapanır, tarama durur, ekrandaki yazı kalkar. Kaydedilmez.
+  function stopSubtitles() {
+    stopped = true;
+    if (eventSource) { eventSource.close(); eventSource = null; }
+    cancelScan();
+    clearTimeout(dropTimer);
+    dropTimer = null;
+    stopSpeech();
+    hideScreen();
+    if (demoRunning()) stopDemo();
+    hideSubtitle('stopped');
+    connState = 'stopped';
+    renderConn();
+  }
+
+  function startSubtitles() {
+    stopped = false;
+    var address = server || load('server') || config.server;
+    if (address) {
+      connect(address);
+    } else {
+      connState = 'none';
+      renderConn();
+      scanForServer();
+    }
+  }
+
+  function rescan() {
+    stopped = false;
+    cancelScan();
+    scanForServer();
+    menu.msg = t('mScanStarted');
+  }
+
+  function findConsole() {
+    save('hdmi', '');
+    autoSelectConsole(function () {
+      setStatus('st-hdmi', hdmiPort + ' (' + t('consoleNotFound') + ')', 'bad');
+    });
+  }
+
+  // Sayı tuşu olmayan kumandalar için: menüde sol ve sağ HDMI girişini değiştirir.
   function stepHdmi(step) {
     hdmiPort = (hdmiPort + step + 3) % 4 + 1;
     save('hdmi', hdmiPort);
     showHdmi(hdmiPort);
-    showPanel(true);
+  }
+
+  function mainItems() {
+    var ipItem = {
+      label: t('mIp'),
+      value: shortAddr(server) || '-',
+      ok: startIpEdit
+    };
+    if (menu.ip) {
+      ipItem.editing = true;
+      ipItem.node = function (el) {
+        for (var i = 0; i < 4; i++) {
+          if (i) el.appendChild(document.createTextNode(' . '));
+          var oct = document.createElement('span');
+          oct.className = 'oct' + (i === menu.ip.pos ? ' sel' : '');
+          oct.textContent = String(menu.ip.o[i]);
+          el.appendChild(oct);
+        }
+      };
+    }
+    var items = [
+      { label: t('mRun'), value: stopped ? t('mRunOff') : t('mRunOn'), ok: toggleRun },
+      { label: t('mSettings'), value: '▶', ok: openSettings },
+      { label: t('mTest'), value: testOn ? t('mOn') : t('mOff'), ok: toggleTest, left: toggleTest, right: toggleTest },
+      ipItem,
+      { label: t('mScan'), value: scanning ? t('mScanStarted') : '', cls: 'action', ok: rescan },
+      { label: t('mHdmi'), value: '◀ ' + hdmiPort + ' ▶', left: function () { stepHdmi(-1); }, right: function () { stepHdmi(1); }, ok: function () { stepHdmi(1); } },
+      { label: t('mHdmiAuto'), cls: 'action', ok: findConsole }
+    ];
+    if (platform.exit) items.push({ label: t('mExit'), cls: 'action', ok: function () { platform.exit(); } });
+    return items;
+  }
+
+  function renderMenu() {
+    renderRows($('menu-list'), mainItems(), menu.index);
+    var msg = $('menu-msg');
+    msg.textContent = menu.ip ? t('ipHint') : (menu.msg || t('navHint'));
+    msg.className = 'msg' + (menu.ip || !menu.msg ? ' hint' : '');
+  }
+
+  // Elle IPv4 girişi: dört bölüm; ◀▶ bölüm seçer, ▲▼ ±1, rakam tuşları yazar, Tamam bağlanır ve kaydeder.
+  function startIpEdit() {
+    var m = /(\d+)\.(\d+)\.(\d+)\.(\d+)/.exec(server || load('server') || '');
+    var octets = m ? [Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4])] : [192, 168, 1, 2];
+    for (var i = 0; i < 4; i++) octets[i] = Math.max(0, Math.min(255, octets[i]));
+    menu.ip = { o: octets, pos: 3, typed: '' };
+  }
+
+  function ipKey(code) {
+    var ip = menu.ip;
+    if (code === KEY.LEFT || code === KEY.RIGHT) {
+      ip.pos = Math.max(0, Math.min(3, ip.pos + (code === KEY.RIGHT ? 1 : -1)));
+      ip.typed = '';
+    } else if (code === KEY.UP || code === KEY.DOWN) {
+      ip.o[ip.pos] = (ip.o[ip.pos] + (code === KEY.UP ? 1 : 255)) % 256;
+      ip.typed = '';
+    } else if (code >= 48 && code <= 57) {
+      ip.typed = (ip.typed.length >= 3 ? '' : ip.typed) + String(code - 48);
+      var value = Math.min(255, parseInt(ip.typed, 10));
+      ip.o[ip.pos] = value;
+      if ((ip.typed.length >= 3 || value * 10 > 255) && ip.pos < 3) {
+        ip.pos++;
+        ip.typed = '';
+      }
+    } else if (code === KEY.OK) {
+      var address = 'http://' + ip.o.join('.') + ':' + SERVER_PORT;
+      menu.ip = null;
+      save('server', address);
+      connect(address);
+      menu.msg = t('ipSaved') + shortAddr(address);
+    } else if (code === KEY.BACK) {
+      menu.ip = null;
+    } else {
+      return false;
+    }
+    return true;
+  }
+
+  // Dönüş değeri: tuş menüye aitse true (sayfanın varsayılan davranışı engellenir).
+  function menuKey(code) {
+    menu.msg = '';
+    if (menu.ip && ipKey(code)) {
+      renderMenu();
+      return true;
+    }
+    var items = mainItems();
+    var item = items[menu.index];
+    var used = true;
+    if (code === KEY.UP || code === KEY.DOWN) {
+      menu.index = wrap(menu.index, code === KEY.DOWN ? 1 : -1, items.length);
+    } else if (code === KEY.LEFT && item.left) {
+      item.left();
+    } else if (code === KEY.RIGHT && item.right) {
+      item.right();
+    } else if (code === KEY.LEFT || code === KEY.RIGHT) {
+      // bu satırda değişecek bir şey yok
+    } else if (code === KEY.OK) {
+      if (item.ok) item.ok();
+    } else if (code === KEY.BACK || code === KEY.GREEN) {
+      hidePanel();
+      return true;
+    } else if (code === KEY.RED) {
+      toggleTest();
+    } else if (code === KEY.BLUE) {
+      if (demoRunning()) stopDemo(); else startDemo();
+      if (!menu.open) return true;
+    } else if (code === 48) {
+      findConsole();
+    } else if (code >= 49 && code <= 52) {
+      hdmiPort = code - 48;
+      save('hdmi', hdmiPort);
+      showHdmi(hdmiPort);
+    } else {
+      used = false;
+    }
+    if (menu.open && !ed.open) renderMenu();
+    return used;
+  }
+
+  // --- "Altyazı Konumu ve Görünümü" ekranı ---
+
+  function openSettings() {
+    ed.open = true;
+    ed.index = 0;
+    ed.move = false;
+    ed.num = null;
+    ed.scroll = 0;
+    draft = SUB.sanitize(subSettings, pageW(), pageH());
+    $('panel').className = 'hidden';
+    $('settings-panel').className = '';
+    refreshSample();
+    redraw(false);
+  }
+
+  // Kaydet ya da vazgeç sonrası: taslak atılır (kaydedildiyse subSettings zaten güncel), ana menüye dönülür.
+  function closeSettings(toMenu) {
+    if (ed.num) clearTimeout(ed.num.timer);
+    ed.open = false;
+    ed.move = false;
+    ed.num = null;
+    draft = null;
+    $('settings-panel').className = 'hidden';
+    layout();
+    refreshSample();
+    if (toMenu && menu.open) {
+      $('panel').className = 'menu';
+      renderStatus();
+      renderMenu();
+    }
+  }
+
+  function saveSettings() {
+    subSettings = SUB.sanitize(draft, pageW(), pageH());
+    save('subStyle', SUB.serialize(subSettings, pageW(), pageH()));
+    menu.msg = t('sSaved');
+    closeSettings(true);
+  }
+
+  // Yerleşimi yeniler; konum değişikliklerinde kutuyu ekrana sığacak aralığa çeker, sonra paneli altyazının öbür yarısına alır.
+  function redraw(clampPos) {
+    layout();
+    if (clampPos) {
+      var cp = SUB.clampPosition(draft, pageW(), pageH(), contentHeight);
+      if (cp.x !== draft.x || cp.y !== draft.y) {
+        draft.x = cp.x;
+        draft.y = cp.y;
+        layout();
+      }
+    }
+    renderSettings();
+  }
+
+  function setField(key, value, clampPos) {
+    draft[key] = value;
+    draft = SUB.sanitize(draft, pageW(), pageH());
+    redraw(clampPos === true);
+  }
+
+  function nudgeField(key, delta, clampPos) {
+    setField(key, draft[key] + delta, clampPos);
+  }
+
+  function moveBy(dx, dy) {
+    draft.x += dx * ed.step;
+    draft.y += dy * ed.step;
+    draft = SUB.sanitize(draft, pageW(), pageH());
+    redraw(true);
+  }
+
+  function presetIndex(list) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].x === draft.x && list[i].y === draft.y && list[i].align === draft.align) return i;
+    }
+    return -1;
+  }
+
+  function stepPreset(dir) {
+    var list = SUB.presets(pageW(), pageH(), draft);
+    var at = presetIndex(list);
+    var next = list[at < 0 ? (dir > 0 ? 0 : list.length - 1) : wrap(at, dir, list.length)];
+    draft.x = next.x;
+    draft.y = next.y;
+    draft.align = next.align;
+    redraw(true);
+  }
+
+  function paletteIndex(list, value) {
+    for (var i = 0; i < list.length; i++) if (list[i].value.toLowerCase() === String(value).toLowerCase()) return i;
+    return -1;
+  }
+
+  function paletteName(entry) { return t('lang') === 'tr' ? entry.name : entry.nameEn; }
+
+  function stepPalette(key, list, dir) {
+    var at = paletteIndex(list, draft[key]);
+    setField(key, list[wrap(at < 0 ? 0 : at, dir, list.length)].value);
+  }
+
+  function swatchNode(list, key) {
+    return function (el) {
+      var at = paletteIndex(list, draft[key]);
+      var chip = document.createElement('span');
+      chip.className = 'swatch';
+      chip.style.background = draft[key];
+      el.appendChild(chip);
+      el.appendChild(document.createTextNode(at < 0 ? draft[key] : paletteName(list[at])));
+    };
+  }
+
+  // Sayı satırı: ◀▶ adım kadar değiştirir; rakam tuşlarıyla doğrudan yazılabilir (Tamam ya da 1,5 sn sonra uygulanır).
+  function numItem(labelKey, key, step, unit, clampPos) {
+    var typing = ed.num && ed.num.key === key;
+    return {
+      label: t(labelKey),
+      value: typing ? ed.num.text + '_' : draft[key] + ' ' + unit,
+      editing: !!typing,
+      numKey: key,
+      left: function () { nudgeField(key, -step, clampPos); },
+      right: function () { nudgeField(key, step, clampPos); }
+    };
+  }
+
+  function settingsItems() {
+    var presets = SUB.presets(pageW(), pageH(), draft);
+    var pi = presetIndex(presets);
+    var lang = t('lang');
+    var outlineNames = { none: t('oNone'), shadow: t('oShadow'), outline: t('oOutline'), both: t('oBoth') };
+    var alignNames = { left: t('aLeft'), center: t('aCenter'), right: t('aRight') };
+    var items = [
+      { label: t('sPreset'), value: pi < 0 ? '—' : (lang === 'tr' ? presets[pi].name : presets[pi].nameEn),
+        left: function () { stepPreset(-1); }, right: function () { stepPreset(1); }, ok: function () { stepPreset(1); } },
+      { label: t('sMove'), value: ed.move ? t('sMoveOn') : t('sMoveValue'), editing: ed.move,
+        ok: function () { ed.move = true; renderSettings(); } },
+      numItem('sX', 'x', 10, 'px', true),
+      numItem('sY', 'y', 10, 'px', true),
+      numItem('sFont', 'fontSize', SUB.RANGES.fontSize.step, 'px', false),
+      numItem('sWidth', 'width', SUB.RANGES.width.step, 'px', false),
+      { label: t('sTextColor'), node: swatchNode(SUB.TEXT_COLORS, 'textColor'),
+        left: function () { stepPalette('textColor', SUB.TEXT_COLORS, -1); }, right: function () { stepPalette('textColor', SUB.TEXT_COLORS, 1); }, ok: function () { stepPalette('textColor', SUB.TEXT_COLORS, 1); } },
+      { label: t('sBgColor'), node: swatchNode(SUB.BG_COLORS, 'bgColor'),
+        left: function () { stepPalette('bgColor', SUB.BG_COLORS, -1); }, right: function () { stepPalette('bgColor', SUB.BG_COLORS, 1); }, ok: function () { stepPalette('bgColor', SUB.BG_COLORS, 1); } },
+      numItem('sBgOpacity', 'bgOpacity', SUB.RANGES.bgOpacity.step, '%', false),
+      { label: t('sOutline'), value: outlineNames[draft.outline],
+        left: function () { setField('outline', cycle(SUB.OUTLINES, draft.outline, -1)); }, right: function () { setField('outline', cycle(SUB.OUTLINES, draft.outline, 1)); }, ok: function () { setField('outline', cycle(SUB.OUTLINES, draft.outline, 1)); } },
+      { label: t('sAlign'), value: alignNames[draft.align],
+        left: function () { setField('align', cycle(SUB.ALIGNS, draft.align, -1)); }, right: function () { setField('align', cycle(SUB.ALIGNS, draft.align, 1)); }, ok: function () { setField('align', cycle(SUB.ALIGNS, draft.align, 1)); } },
+      { label: t('sBold'), value: draft.bold ? t('mOn') : t('mOff'),
+        left: function () { setField('bold', !draft.bold); }, right: function () { setField('bold', !draft.bold); }, ok: function () { setField('bold', !draft.bold); } },
+      numItem('sMargin', 'margin', SUB.RANGES.margin.step, 'px', true),
+      { label: t('sSource'), value: draft.positionSource === 'tv' ? t('srcTv') : t('srcPc'),
+        left: function () { setField('positionSource', cycle(SUB.SOURCES, draft.positionSource, -1)); }, right: function () { setField('positionSource', cycle(SUB.SOURCES, draft.positionSource, 1)); }, ok: function () { setField('positionSource', cycle(SUB.SOURCES, draft.positionSource, 1)); } },
+      { label: t('sSave'), cls: 'action', ok: saveSettings },
+      { label: t('sCancel'), cls: 'action', ok: function () { closeSettings(true); } },
+      { label: t('sReset'), cls: 'action', ok: function () { draft = SUB.defaults(pageW(), pageH()); ed.move = false; redraw(false); } }
+    ];
+    return items;
+  }
+
+  function renderSettings() {
+    var items = settingsItems();
+    var list = $('settings-list');
+    var panel = $('settings-panel');
+    var keep = list.scrollTop;
+    list.style.height = 'auto';
+    renderRows(list, items, ed.index);
+
+    // Bilgi satırları
+    var info = $('settings-info');
+    info.innerHTML = '';
+    var line = document.createElement('div');
+    line.textContent = t('sInfo').replace('{h}', String(pageH()));
+    info.appendChild(line);
+    if (draft.positionSource === 'pc') {
+      var note = document.createElement('div');
+      note.textContent = t('sPcNote');
+      info.appendChild(note);
+    }
+    if (ed.move) {
+      var live = document.createElement('div');
+      live.className = 'live';
+      live.textContent = t('sMoveHint').replace('{step}', ed.step === 2 ? t('sStepFine') : t('sStepFast'));
+      info.appendChild(live);
+    }
+    $('settings-hint').textContent = ed.num ? t('sTyping') : t('navHint');
+
+    // Panel, altyazının olmadığı yarıya alınır; satırlar sığmazsa liste kaydırılır.
+    var sub = $('subtitle').getBoundingClientRect();
+    var vh = pageH();
+    var above = sub.top - 16, below = vh - sub.bottom - 16;
+    var space;
+    if (above >= below) {
+      panel.style.top = '16px';
+      panel.style.bottom = 'auto';
+      space = above;
+    } else {
+      panel.style.top = 'auto';
+      panel.style.bottom = '16px';
+      space = below;
+    }
+    space = Math.max(220, space);
+    var overhead = panel.offsetHeight - list.offsetHeight;
+    list.style.height = Math.max(120, Math.min(list.scrollHeight, space - overhead)) + 'px';
+    list.scrollTop = keep;
+    var row = list.childNodes[ed.index];
+    if (row) {
+      if (row.offsetTop < list.scrollTop) list.scrollTop = row.offsetTop - 4;
+      else if (row.offsetTop + row.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = row.offsetTop + row.offsetHeight - list.clientHeight + 4;
+    }
+  }
+
+  function commitNum() {
+    if (!ed.num) return;
+    clearTimeout(ed.num.timer);
+    var key = ed.num.key;
+    var value = parseInt(ed.num.text, 10);
+    ed.num = null;
+    if (isNaN(value)) return renderSettings();
+    setField(key, value, key === 'x' || key === 'y' || key === 'margin');
+  }
+
+  function typeDigit(item, digit) {
+    var key = item.numKey;
+    if (!ed.num || ed.num.key !== key) {
+      if (ed.num) commitNum();
+      ed.num = { key: key, text: '', timer: null };
+    }
+    clearTimeout(ed.num.timer);
+    if (ed.num.text.length >= 4) ed.num.text = '';
+    ed.num.text += String(digit);
+    ed.num.timer = setTimeout(commitNum, 1500);
+    renderSettings();
+  }
+
+  function moveKey(code) {
+    if (code === KEY.LEFT) moveBy(-1, 0);
+    else if (code === KEY.RIGHT) moveBy(1, 0);
+    else if (code === KEY.UP) moveBy(0, -1);
+    else if (code === KEY.DOWN) moveBy(0, 1);
+    else if (code === KEY.OK) { ed.step = ed.step === 2 ? 40 : 2; renderSettings(); }
+    else if (code === KEY.BACK) { ed.move = false; renderSettings(); }
+    else return false;
+    return true;
+  }
+
+  function settingsKey(code) {
+    if (ed.move) return moveKey(code);
+    var digit = code >= 48 && code <= 57;
+    if (ed.num) {
+      if (digit) { typeDigit(settingsItems()[ed.index], code - 48); return true; }
+      if (code === KEY.BACK) { clearTimeout(ed.num.timer); ed.num = null; renderSettings(); return true; }
+      commitNum();
+      if (code === KEY.OK) return true;
+    }
+    var items = settingsItems();
+    var item = items[ed.index];
+    if (digit) {
+      if (!item.numKey) return false;
+      typeDigit(item, code - 48);
+      return true;
+    }
+    if (code === KEY.UP || code === KEY.DOWN) {
+      ed.index = wrap(ed.index, code === KEY.DOWN ? 1 : -1, items.length);
+      renderSettings();
+    } else if (code === KEY.LEFT || code === KEY.RIGHT) {
+      var action = code === KEY.LEFT ? item.left : item.right;
+      if (action) action(); else renderSettings();
+    } else if (code === KEY.OK) {
+      if (item.ok) item.ok(); else renderSettings();
+    } else if (code === KEY.BACK) {
+      closeSettings(true);
+    } else {
+      return false;
+    }
+    return true;
   }
 
   document.addEventListener('keydown', function (e) {
     var code = e.keyCode;
+    if (menu.open) {
+      if (ed.open ? settingsKey(code) : menuKey(code)) e.preventDefault();
+      return;
+    }
     if (code === 48) { // 0: elle seçimi unut, konsolu yeniden ara
-      save('hdmi', '');
-      autoSelectConsole(function () {
-        setStatus('st-hdmi', hdmiPort + ' (' + t('consoleNotFound') + ')', 'bad');
-      });
+      findConsole();
       showPanel(true);
     } else if (code >= 49 && code <= 52) { // 1–4
       hdmiPort = code - 48;
@@ -841,24 +1550,25 @@
       showHdmi(hdmiPort);
       showPanel(true);
     } else if (code === KEY.RED) {
-      showSubtitle(t('localTest'), 4000);
+      toggleTest();
     } else if (code === KEY.GREEN) {
-      togglePanel();
+      openMenu();
     } else if (code === KEY.BLUE) {
       if (demoRunning()) stopDemo(); else startDemo();
     } else if (code === KEY.OK && $('waiting').className !== 'hidden') {
       startDemo();
     } else if (code === KEY.OK && !demoRunning()) {
-      togglePanel();
-    } else if ((code === KEY.LEFT || code === KEY.RIGHT) && $('panel').className !== 'hidden') {
-      stepHdmi(code === KEY.RIGHT ? 1 : -1);
+      openMenu();
     } else if (code === KEY.BACK) {
       goBack();
       e.preventDefault();
-    } else if (code === KEY.UP || code === KEY.DOWN) {
-      nudgeSubtitle(code === KEY.UP ? 3 : -3);
-      e.preventDefault();
     }
+    // Oklar menü kapalıyken hiçbir şey yapmaz ve engellenmez; kullanılmayan tuşlara dokunulmaz.
+  });
+
+  window.addEventListener('resize', function () {
+    if ($('subtitle').className !== 'hidden') layout();
+    if (ed.open) renderSettings();
   });
 
   // Uygulama zaten açıkken yeniden başlatılırsa (ör. GameTranslator onu öne getirdiğinde) parametreler burada gelir.
@@ -867,6 +1577,8 @@
   platform.init();
   window.applyI18n();
   formatKeys();
+  subSettings = loadSubSettings();
+  renderProvider();
   var savedBottom = load('bottom') || load('appBottom');
   if (savedBottom) setBottom(Number(savedBottom));
   showHdmi(hdmiPort);

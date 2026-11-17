@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <!-- Yalnız geliştirme önizlemesi (TV'ye gönderilmez): masaüstü tarayıcıda ok tuşları, Enter ve Escape ile sürülür.
+       r = Kırmızı (403), g = Yeşil (404), b = Mavi (406). <body> işaretlemesi webos/index.html ile aynı tutulur. -->
+  <title>GameTranslator TV önizleme</title>
+  <link rel="stylesheet" href="../webos/style.css">
+  <style>html, body { background: #5a5f66; }</style>
+</head>
+<body>
+  <div id="video-host"></div>
+
+  <div id="screen" class="hidden"></div>
+  <div id="subtitle-cover" class="hidden"></div>
+  <div id="subtitle" class="hidden"><div id="subtitle-prev" class="hidden"><span id="subtitle-prev-text"></span></div><span id="subtitle-text"></span></div>
+
+  <div id="waiting" class="hidden">
+    <img class="logo" src="../webos/largeIcon.png" alt="">
+    <div class="waiting-title" data-i18n="waiting"></div>
+    <div class="waiting-hint" data-i18n="waitingHint"></div>
+    <div id="demo-button" class="button focused" data-i18n="demoButton"></div>
+  </div>
+
+  <div id="demo-badge" class="hidden"><b data-i18n="demoBadge"></b><span data-i18n="demoHint"></span></div>
+
+  <div id="panel">
+    <div class="title"><img class="logo" src="../webos/icon.png" alt=""><span data-i18n="panelTitle"></span> <span id="app-version" class="muted" style="margin-left: 12px; font-weight: 400;"></span></div>
+    <div class="row"><span class="label" data-i18n="hdmi"></span><span><span id="st-hdmi">-</span> <span id="st-video" class="muted"></span></span></div>
+    <div class="row"><span class="label" data-i18n="server"></span><span id="st-server">-</span></div>
+    <div class="row"><span class="label" data-i18n="connection"></span><span id="st-conn">-</span></div>
+    <div class="row"><span class="label" data-i18n="lastSubtitle"></span><span id="st-last" class="muted">-</span></div>
+    <div class="row"><span class="label" data-i18n="provider"></span><span id="st-provider" class="muted">-</span></div>
+    <div class="row"><span class="label" data-i18n="diagnostics"></span><span id="st-diag" class="muted">-</span></div>
+    <div id="menu-list"></div>
+    <div id="menu-msg" class="msg"></div>
+    <div class="keys" id="keys" data-i18n="keys"></div>
+  </div>
+
+  <div id="settings-panel" class="hidden">
+    <div class="title"><span data-i18n="sTitle"></span></div>
+    <div id="settings-info" class="info"></div>
+    <div id="settings-list"></div>
+    <div id="settings-hint" class="info"></div>
+  </div>
+
+  <script src="../webos/config.js"></script>
+  <script>
+    // Sahte platform: HDMI yerine gri zemin. Gerçek arayüz için bkz. tv/android/platform.js
+    window.GAMETRANSLATOR_PLATFORM = {
+      backKey: 27,
+      init: function () {},
+      launchParams: function () { return '{}'; },
+      onRelaunch: function () {},
+      showHdmi: function (port, host, onStatus) { onStatus('playing'); },
+      findConsolePort: function (callback) { callback(null, null); },
+      localAddress: function (callback) { callback('192.168.1.50'); },
+      exit: function () { console.log('platform.exit()'); }
+    };
+    // r/g/b tuşlarını kumandanın renk tuşlarına çevirir.
+    var COLOR_KEYS = { r: 403, g: 404, b: 406 };
+    document.addEventListener('keydown', function (e) {
+      var code = COLOR_KEYS[e.key];
+      if (!code || e.isTrusted === false) return;
+      e.stopImmediatePropagation();
+      var event = new Event('keydown', { cancelable: true });
+      event.keyCode = code;
+      document.dispatchEvent(event);
+    }, true);
+  </script>
+  <script src="../webos/i18n.js"></script>
+  <script src="../webos/subtitle-settings.js"></script>
+  <script src="../webos/app.js"></script>
+</body>
+</html>

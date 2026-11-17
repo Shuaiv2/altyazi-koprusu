@@ -78,6 +78,13 @@ public final class NativeSubtitleServer: @unchecked Sendable {
     private var viewers: Set<ObjectIdentifier> = []
     private var lastStyle: SubtitleStyle = SubtitleStyle()
     private var pingTimer: DispatchSourceTimer?
+    // Seçili çeviri sağlayıcısının adı; TV "Çeviri sağlayıcısı" satırında gösterir. Anahtar değil, yalnız ad.
+    private let providerLock = NSLock()
+    private var providerName = ""
+    public var provider: String {
+        get { providerLock.lock(); defer { providerLock.unlock() }; return providerName }
+        set { providerLock.lock(); providerName = newValue; providerLock.unlock() }
+    }
 
     public var onClientsChanged: ((Int) -> Void)?
 
@@ -137,6 +144,8 @@ public final class NativeSubtitleServer: @unchecked Sendable {
         if let box = box {
             json["box"] = box
         }
+        let provider = self.provider
+        if !provider.isEmpty { json["provider"] = provider }
         broadcast(event: "subtitle", json: json)
     }
 
@@ -1423,6 +1432,7 @@ final class AppState {
     }() {
         didSet {
             UserDefaults.standard.set(selectedModel.rawValue, forKey: "gt_selected_model")
+            server.provider = selectedModel.title
         }
     }
     
@@ -2534,6 +2544,7 @@ final class AppState {
            let model = TranslationModel(rawValue: savedModel) {
             self.selectedModel = model
         }
+        server.provider = selectedModel.title
         if let gemKey = UserDefaults.standard.string(forKey: "gt_gemini_key") {
             self.geminiApiKey = gemKey
         }

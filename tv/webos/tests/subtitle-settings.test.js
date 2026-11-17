@@ -1,0 +1,137 @@
+// SPDX-License-Identifier: AGPL-3.0-only
+// Çalıştırma (repo kökünden):
+//   /System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc tv/webos/subtitle-settings.js tv/webos/tests/subtitle-settings.test.js
+(function () {
+  var S = GT_SUBSETTINGS;
+  var count = 0;
+
+  function ok(cond, message) {
+    count++;
+    if (!cond) throw new Error('FAIL: ' + message);
+  }
+  function eq(actual, expected, message) {
+    ok(actual === expected, message + ' (beklenen ' + expected + ', gelen ' + actual + ')');
+  }
+
+  // --- defaults / sanitize ---
+  var d = S.defaults(1920, 1080);
+  eq(d.x, 960, 'varsayılan x orta');
+  eq(d.positionSource, 'tv', 'varsayılan kaynak tv');
+  eq(d.version, 1, 'sürüm');
+  ok(d.y <= 1080 - d.margin, 'varsayılan y kenar boşluğu içinde');
+
+  var s = S.sanitize({ x: -50, y: 99999, width: 10, fontSize: 500, margin: -3, bgOpacity: 250,
+    textColor: 'red', bgColor: '#12ab34', outline: 'glow', align: 'middle', bold: 'yes', positionSource: 'x', junk: 1 }, 1920, 1080);
+  eq(s.x, 0, 'x alt sınır');
+  eq(s.y, 1080, 'y üst sınır');
+  eq(s.width, 300, 'width alt sınır');
+  eq(s.fontSize, 120, 'fontSize üst sınır');
+  eq(s.margin, 0, 'margin alt sınır');
+  eq(s.bgOpacity, 100, 'bgOpacity üst sınır');
+  eq(s.textColor, d.textColor, 'geçersiz renk varsayılana döner');
+  eq(s.bgColor, '#12AB34', 'geçerli renk korunur');
+  eq(s.outline, 'shadow', 'geçersiz outline varsayılan');
+  eq(s.align, 'center', 'geçersiz align varsayılan');
+  eq(s.bold, true, 'geçersiz bold varsayılan');
+  eq(s.positionSource, 'tv', 'geçersiz kaynak varsayılan');
+  ok(s.junk === undefined, 'bilinmeyen alan atılır');
+  var n = S.sanitize(null, 1920, 1080);
+  eq(n.fontSize, d.fontSize, 'null -> varsayılan');
+  var nan = S.sanitize({ x: 'abc', fontSize: NaN, width: Infinity }, 1920, 1080);
+  eq(nan.x, d.x, 'NaN x varsayılan');
+  eq(nan.fontSize, d.fontSize, 'NaN fontSize varsayılan');
+  eq(nan.width, d.width, 'Infinity width varsayılan');
+
+  // --- parse / serialize ---
+  eq(S.parse('{bozuk', 1920, 1080), null, 'bozuk JSON null');
+  eq(S.parse('', 1920, 1080), null, 'boş JSON null');
+  eq(S.parse('5', 1920, 1080), null, 'sayı JSON null');
+  var round = S.parse(S.serialize(s), 1920, 1080);
+  eq(JSON.stringify(round), JSON.stringify(S.sanitize(s, 1920, 1080)), 'serialize/parse gidiş-dönüş');
+
+  // --- migrate ---
+  eq(S.migrate(7, 1080).y, Math.round(1080 - 1080 * 0.07), 'migrate %7');
+  eq(S.migrate(0, 1080).y, 1080, 'migrate %0 -> 1080');
+  eq(S.migrate(50, 1200).y, 600, 'migrate %50 1200 yüksek');
+  eq(S.migrate(500, 1080).y, Math.round(1080 - 1080 * 0.92), 'migrate üst sınır %92');
+  eq(S.migrate('abc', 1080).y, d.y, 'migrate geçersiz -> varsayılan y');
+  eq(S.migrate(-5, 1080).y, 1080, 'migrate negatif -> %0');
+  eq(S.migrate(7, 1080).positionSource, 'tv', 'migrate kaynak tv');
+
+  // --- presets ---
+  var views = [[1920, 1080], [1920, 1200], [1920, 900]];
+  var expectedNames = ['Alt orta', 'Üst orta', 'Alt sol', 'Alt sağ', 'Ekran ortası'];
+  for (var v = 0; v < views.length; v++) {
+    var vw = views[v][0], vh = views[v][1];
+    var list = S.presets(vw, vh, S.defaults(vw, vh));
+    eq(list.length, 5, 'beş hazır konum');
+    for (var p = 0; p < list.length; p++) {
+      eq(list[p].name, expectedNames[p], 'hazır konum adı ' + p);
+      var applied = S.defaults(vw, vh);
+      applied.x = list[p].x; applied.y = list[p].y; applied.align = list[p].align;
+      var r = S.computeRect(applied, vw, vh, 120);
+      ok(r.left >= applied.margin && r.left + r.width <= vw - applied.margin, 'hazır konum yatay içeride: ' + list[p].id);
+      ok(r.top >= applied.margin && r.bottom <= vh - applied.margin, 'hazır konum dikey içeride: ' + list[p].id);
+    }
+    eq(list[2].align, 'left', 'Alt sol sola yaslı');
+    eq(list[3].align, 'right', 'Alt sağ sağa yaslı');
+    eq(S.presets(vw, vh)[0].x, vw / 2, 'ayarsız çağrı çalışır');
+  }
+  var leftSet = S.defaults(1920, 1080); var lp = S.presets(1920, 1080, leftSet)[2];
+  eq(lp.x - Math.min(leftSet.width, 1920 - 2 * leftSet.margin) / 2, leftSet.margin, 'Alt sol kutunun kenarı kenar boşluğunda');
+
+  // --- acceptSubtitle ---
+  eq(S.acceptSubtitle({ lastAt: 1000, shownText: null }, { text: 'a', at: 999 }), 'drop', 'eski at düşer');
+  eq(S.acceptSubtitle({ lastAt: 1000, shownText: null }, { text: 'a', at: 1000 }), 'show', 'eşit at kabul');
+  eq(S.acceptSubtitle({ lastAt: 1000, shownText: null }, { text: 'a', at: 1001 }), 'show', 'yeni at kabul');
+  eq(S.acceptSubtitle({ lastAt: 1000, shownText: null }, { text: 'a' }), 'show', 'at yoksa kabul');
+  eq(S.acceptSubtitle({ lastAt: 1000, shownText: null }, { text: 'a', at: 'x' }), 'show', 'sayı olmayan at yoksayılır');
+  eq(S.acceptSubtitle({ lastAt: 1000, shownText: 'a' }, { text: 'a', at: 1500 }), 'extend', 'aynı metin uzatır');
+  eq(S.acceptSubtitle({ lastAt: 1000, shownText: 'a' }, { text: 'a' }), 'extend', 'at yoksa da aynı metin uzatır');
+  eq(S.acceptSubtitle({ lastAt: 1000, shownText: 'a' }, { text: 'a', at: 10 }), 'drop', 'eski aynı metin önce düşer');
+  eq(S.acceptSubtitle({ lastAt: 1000, shownText: 'a' }, { text: 'b', at: 1500 }), 'show', 'farklı metin gösterilir');
+  eq(S.acceptSubtitle({ lastAt: 0, shownText: null }, { text: '' }), 'drop', 'boş metin düşer');
+  eq(S.acceptSubtitle({}, { text: 'a', at: 5 }), 'show', 'boş durum kabul');
+
+  // --- rgba ---
+  eq(S.rgba('#FF8000', 50), 'rgba(255, 128, 0, 0.5)', 'rgba');
+
+  // --- computeRect ızgara / özellik testi ---
+  var viewports = [[1920, 1080], [1920, 1200], [1920, 900], [1280, 720], [1000, 600]];
+  var xs = [-100, 0, 1, 100, 500, 960, 1500, 1919, 1920, 5000];
+  var ys = [-100, 0, 40, 500, 1000, 1080, 1199, 1200, 9999];
+  var widths = [300, 777, 1000, 1400, 1920, 3000];
+  var margins = [0, 4, 48, 100, 200];
+  var heights = [0, 50, 130, 400, 900, 1000, 1100, 3000];
+  var checked = 0, overflow = 0;
+  for (var a = 0; a < viewports.length; a++) {
+    for (var b = 0; b < xs.length; b++) for (var c = 0; c < ys.length; c++) for (var e = 0; e < widths.length; e++)
+      for (var f = 0; f < margins.length; f++) for (var g = 0; g < heights.length; g++) {
+        var w = viewports[a][0], h = viewports[a][1];
+        var st = { x: xs[b], y: ys[c], width: widths[e], margin: margins[f] };
+        var ch = heights[g];
+        var rc = S.computeRect(st, w, h, ch);
+        var m = Math.min(margins[f], Math.floor(w / 2) - 1);
+        var tag = JSON.stringify([w, h, st, ch, rc]);
+        ok(rc.left >= m && rc.left + rc.width <= w - m, 'yatay içeride ' + tag);
+        ok(rc.width <= widths[e] && rc.width <= w - 2 * m, 'genişlik sınırı ' + tag);
+        eq(rc.bottom - rc.top, ch, 'yükseklik korunur ' + tag);
+        if (ch <= h - 2 * m) {
+          ok(rc.top >= m && rc.bottom <= h - m, 'dikey içeride ' + tag);
+        } else {
+          eq(rc.top, m, 'sığmayan içerik üstten başlar ' + tag);
+          overflow++;
+        }
+        var cp = S.clampPosition(st, w, h, ch);
+        var back = S.computeRect({ x: cp.x, y: cp.y, width: st.width, margin: st.margin }, w, h, ch);
+        if (ch <= h - 2 * m) {
+          eq(back.bottom, cp.y, 'clampPosition y sabit ' + tag);
+          ok(Math.abs((back.left + back.width / 2) - cp.x) <= 1, 'clampPosition x sabit ' + tag);
+        }
+        checked++;
+      }
+  }
+  ok(overflow > 0, 'taşan içerik durumu denendi');
+
+  print('PASS: ' + count + ' denetim, ' + checked + ' computeRect kombinasyonu (' + overflow + ' taşan içerik)');
+})();
