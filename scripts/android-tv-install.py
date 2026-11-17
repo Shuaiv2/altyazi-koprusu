@@ -83,9 +83,9 @@ def main():
 
     if action in ("test", "launch"):
         emit("progress", message="Uygulama televizyon ekranına getiriliyor...")
-        device.shell(f'am start -n com.gametranslator.tv/.MainActivity --user {current_user} -f 0x10000000 --es params "{params_json}"')
+        device.shell(f'am start -n com.altyazikoprusu.tv/com.gametranslator.tv.MainActivity --user {current_user} -f 0x10000000 --es params "{params_json}"')
         device.shell("input keyevent 183") # PROG_RED - trigger subtitle
-        emit("done", message="✅ GameTranslator TV ekranında açıldı ve test altyazısı tetiklendi!")
+        emit("done", message="✅ Altyazı Köprüsü TV ekranında açıldı ve test altyazısı tetiklendi!")
         return
 
     # Install action
@@ -123,17 +123,17 @@ def main():
         install_out = device.shell("pm install -r -d /data/local/tmp/gt_app.apk")
 
     # Ensure existing package is enabled for current user
-    device.shell(f"pm install-existing --user {current_user} com.gametranslator.tv")
+    device.shell(f"pm install-existing --user {current_user} com.altyazikoprusu.tv")
     device.shell("rm -f /data/local/tmp/gt_app.apk")
 
     emit("progress", message="Uygulama televizyonda başlatılıyor...")
 
     # Force stop before starting to ensure clean launch
-    device.shell("am force-stop com.gametranslator.tv")
-    start_out = device.shell(f'am start -n com.gametranslator.tv/.MainActivity --user {current_user} --es params "{params_json}"')
+    device.shell("am force-stop com.altyazikoprusu.tv")
+    start_out = device.shell(f'am start -n com.altyazikoprusu.tv/com.gametranslator.tv.MainActivity --user {current_user} --es params "{params_json}"')
     device.shell("input keyevent 183") # PROG_RED - trigger subtitle immediately
 
-    emit("done", installed=True, version="1.0.0", message="✅ GameTranslator TV uygulaması televizyona başarıyla yüklendi ve açıldı!")
+    emit("done", installed=True, version="1.0.0", message="✅ Altyazı Köprüsü TV uygulaması televizyona başarıyla yüklendi ve açıldı!")
 
 if __name__ == "__main__":
     main()

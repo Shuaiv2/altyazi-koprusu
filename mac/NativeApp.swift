@@ -194,10 +194,10 @@ public final class NativeSubtitleServer: @unchecked Sendable {
         } else if method == "GET" && path == "/hello" {
             respondAndClose(connection, status: "200 OK", body: #"{"app":"gametranslator","version":"2.0"}"#, type: "application/json")
         } else if (method == "GET" || method == "POST") && path == "/test" {
-            self.sendSubtitle(turkish: "🎮 GameTranslator Canlı Altyazı Testi Başarılı!", original: "GameTranslator Live Subtitle Test Successful!", durationMs: 15000)
+            self.sendSubtitle(turkish: "🎮 Altyazı Köprüsü Canlı Altyazı Testi Başarılı!", original: "Altyazı Köprüsü Live Subtitle Test Successful!", durationMs: 15000)
             respondAndClose(connection, status: "200 OK", body: #"{"status":"ok","message":"Test altyazisi gonderildi"}"#, type: "application/json")
         } else if (method == "GET" || method == "POST") && path == "/send" {
-            var text = "🎮 GameTranslator Canlı Altyazı"
+            var text = "🎮 Altyazı Köprüsü Canlı Altyazı"
             var original = ""
             var duration = 12000
             if let query = target.components(separatedBy: "?").dropFirst().first {
@@ -1074,20 +1074,15 @@ enum TVHelperBridge {
         let candidates = [
             Bundle.main.url(forAuxiliaryExecutable: "gametranslator-tv-helper"),
             Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/gametranslator-tv-helper"),
-            URL(fileURLWithPath: "/Applications/GameTranslator.app/Contents/MacOS/gametranslator-tv-helper"),
-            URL(fileURLWithPath: "GameTranslator/GameTranslator.app/Contents/MacOS/gametranslator-tv-helper"),
-            URL(fileURLWithPath: "dist/tv-helper/gametranslator-tv-helper")
+            Bundle.main.resourceURL?.appendingPathComponent("tv-helper/gametranslator-tv-helper")
         ]
         return candidates.compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
 
     static var bundledAPKURL: URL? {
         let candidates = [
-            Bundle.main.url(forResource: "gametranslator-androidtv_1.0.0", withExtension: "apk", subdirectory: "tv-app"),
-            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/tv-app/gametranslator-androidtv_1.0.0.apk"),
-            URL(fileURLWithPath: "/Applications/GameTranslator.app/Contents/Resources/tv-app/gametranslator-androidtv_1.0.0.apk"),
-            URL(fileURLWithPath: "GameTranslator/GameTranslator.app/Contents/Resources/tv-app/gametranslator-androidtv_1.0.0.apk"),
-            URL(fileURLWithPath: "dist/tv-app/gametranslator-androidtv_1.0.0.apk")
+            Bundle.main.url(forResource: "altyazi-koprusu-tv", withExtension: "apk", subdirectory: "tv-app"),
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/tv-app/altyazi-koprusu-tv.apk")
         ]
         return candidates.compactMap { $0 }.first { FileManager.default.fileExists(atPath: $0.path) }
     }
@@ -1135,16 +1130,14 @@ enum TVHelperBridge {
 
     static func installAndroidTV(host: String) -> (success: Bool, message: String) {
         guard let apk = bundledAPKURL else {
-            return (false, "gametranslator-androidtv APK paketi bulunamadı.")
+            return (false, "Altyazı Köprüsü TV APK paketi bulunamadı.")
         }
 
         let pythonCandidates = ["/usr/local/bin/python3", "/opt/homebrew/bin/python3", "/usr/bin/python3"]
         let pythonBin = pythonCandidates.first { FileManager.default.isExecutableFile(atPath: $0) }
 
         let scriptCandidates = [
-            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/scripts/android-tv-install.py"),
-            URL(fileURLWithPath: "/Applications/GameTranslator.app/Contents/Resources/scripts/android-tv-install.py"),
-            URL(fileURLWithPath: "GameTranslate-main/scripts/android-tv-install.py")
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/scripts/android-tv-install.py")
         ]
         let scriptURL = scriptCandidates.first { FileManager.default.fileExists(atPath: $0.path) }
 
@@ -1176,7 +1169,7 @@ enum TVHelperBridge {
                            let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                            let event = obj["event"] as? String {
                             if event == "done" {
-                                let msg = obj["message"] as? String ?? "✅ GameTranslator TV uygulaması televizyona başarıyla yüklendi ve açıldı!"
+                                let msg = obj["message"] as? String ?? "✅ Altyazı Köprüsü TV uygulaması televizyona başarıyla yüklendi ve açıldı!"
                                 return (true, msg)
                             } else if event == "error" {
                                 let msg = obj["message"] as? String ?? "TV Kurulum Hatası."
@@ -1222,7 +1215,7 @@ enum TVHelperBridge {
                        let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                        let event = obj["event"] as? String {
                         if event == "done" {
-                            return (true, "✅ GameTranslator TV uygulaması televizyona başarıyla yüklendi ve açıldı!")
+                            return (true, "✅ Altyazı Köprüsü TV uygulaması televizyona başarıyla yüklendi ve açıldı!")
                         } else if event == "approve" {
                             return (false, "⚠️ Televizyon ekranında 'Bu bilgisayardan hata ayıklamaya her zaman izin verilsin mi?' sorusu belirdi. Lütfen TV kumandasıyla 'İzin Ver' / 'Tamam' seçeneğini işaretleyip tekrar 'TV'ye Otomatik Kur' butonuna basın.")
                         } else if event == "error" {
@@ -1247,9 +1240,7 @@ enum TVHelperBridge {
         let pythonBin = pythonCandidates.first { FileManager.default.isExecutableFile(atPath: $0) }
 
         let scriptCandidates = [
-            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/scripts/android-tv-install.py"),
-            URL(fileURLWithPath: "/Applications/GameTranslator.app/Contents/Resources/scripts/android-tv-install.py"),
-            URL(fileURLWithPath: "GameTranslate-main/scripts/android-tv-install.py")
+            Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/scripts/android-tv-install.py")
         ]
         let scriptURL = scriptCandidates.first { FileManager.default.fileExists(atPath: $0.path) }
 
@@ -1284,7 +1275,7 @@ enum TVHelperBridge {
                        let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                        let event = obj["event"] as? String {
                         if event == "done" {
-                            let msg = obj["message"] as? String ?? "✅ GameTranslator TV ekranına getirildi!"
+                            let msg = obj["message"] as? String ?? "✅ Altyazı Köprüsü TV ekranına getirildi!"
                             return (true, msg)
                         } else if event == "error" {
                             let msg = obj["message"] as? String ?? "TV Hatası."
@@ -1307,9 +1298,7 @@ enum PS5RegistrationBridge {
         let candidates = [
             Bundle.main.url(forAuxiliaryExecutable: "gametranslator-ps5-register"),
             Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/gametranslator-ps5-register"),
-            URL(fileURLWithPath: "/Applications/GameTranslator.app/Contents/MacOS/gametranslator-ps5-register"),
-            URL(fileURLWithPath: "GameTranslator/GameTranslator.app/Contents/MacOS/gametranslator-ps5-register"),
-            URL(fileURLWithPath: "GameTranslate-main/scripts/gametranslator-ps5-register")
+            Bundle.main.resourceURL?.appendingPathComponent("ps5-register/gametranslator-ps5-register")
         ]
         return candidates.compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
     }
@@ -1671,8 +1660,8 @@ final class AppState {
                     // Televizyona otomatik hoş geldin ve bağlantı testi altyazısı gönder
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                         self.server.sendSubtitle(
-                            turkish: "🎮 GameTranslator Televizyonunuza Başarıyla Bağlandı! (Hazır)",
-                            original: "GameTranslator TV Connected Successfully! (Ready)",
+                            turkish: "🎮 Altyazı Köprüsü Televizyonunuza Başarıyla Bağlandı! (Hazır)",
+                            original: "Altyazı Köprüsü TV Connected Successfully! (Ready)",
                             durationMs: 15000
                         )
                     }
@@ -1686,8 +1675,8 @@ final class AppState {
 
     func sendTVTestSubtitle() {
         testSent = true
-        let testTr = "🎮 GameTranslator Canlı Altyazı Testi Başarılı! (TCL Smart TV)"
-        let testEn = "GameTranslator Live Subtitle Test Successful!"
+        let testTr = "🎮 Altyazı Köprüsü Canlı Altyazı Testi Başarılı! (TCL Smart TV)"
+        let testEn = "Altyazı Köprüsü Live Subtitle Test Successful!"
         let entry = SubtitleEntry(turkish: testTr, english: testEn, timestamp: currentTime())
         history.insert(entry, at: 0)
 
@@ -2071,7 +2060,7 @@ final class AppState {
                     self.hasScreenRecordingPermission = false
                     self.showPermissionBanner = true
                     self.liveEnglish = "Screen Capture Permission Required"
-                    self.liveTurkish = "⚠️ macOS Ekran Kaydı İzni Kapalı! Lütfen Sistem Ayarları'ndan GameTranslator'a izin verin."
+                    self.liveTurkish = "⚠️ macOS Ekran Kaydı İzni Kapalı! Lütfen Sistem Ayarları'ndan Altyazı Köprüsü'ne izin verin."
                 }
             }
             return
@@ -2494,17 +2483,14 @@ final class AppState {
     func revealTVPackage(for platform: String) {
         let fileName: String
         switch platform {
-        case "Android TV": fileName = "gametranslator-androidtv_1.0.0.apk"
+        case "Android TV": fileName = "altyazi-koprusu-tv.apk"
         case "LG webOS": fileName = "com.gametranslator.tv_1.0.0_all.ipk"
         case "Samsung Tizen": fileName = "gametranslator-samsung_1.0.0.wgt"
         default: return
         }
         
         let candidatePaths = [
-            Bundle.main.bundlePath + "/Contents/Resources/tv-app/" + fileName,
-            "/Applications/GameTranslator.app/Contents/Resources/tv-app/" + fileName,
-            "GameTranslator/tv/" + fileName,
-            "dist/tv-app/" + fileName
+            Bundle.main.bundlePath + "/Contents/Resources/tv-app/" + fileName
         ]
         for path in candidatePaths {
             if FileManager.default.fileExists(atPath: path) {
@@ -2619,8 +2605,8 @@ final class AppState {
     
     func sendTestSubtitle() {
         testSent = true
-        let testTr = "GameTranslator canlı altyazı testi başarılı! 🎮"
-        let testEn = "GameTranslator live subtitle test successful!"
+        let testTr = "Altyazı Köprüsü canlı altyazı testi başarılı! 🎮"
+        let testEn = "Altyazı Köprüsü live subtitle test successful!"
         let entry = SubtitleEntry(turkish: testTr, english: testEn, timestamp: currentTime())
         history.insert(entry, at: 0)
         let testBox: [String: Double] = [
@@ -2725,10 +2711,10 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             _ = state.checkScreenCapturePermission()
         }
-        .alert("GameTranslator 2.0", isPresented: $state.showAbout) {
+        .alert("Altyazı Köprüsü", isPresented: $state.showAbout) {
             Button("Tamam", role: .cancel) { }
         } message: {
-            Text("PlayStation 5 ve Akıllı TV için Sıfır Gecikmeli Yapay Zeka Çeviri Motoru.\n\nSürüm: 2.0.0 (Native Apple Silicon Frosted Glass)\nSSE TV Portu: 8787")
+            Text("PlayStation 5 ve Akıllı TV için Sıfır Gecikmeli Yapay Zeka Çeviri Motoru.\n\nSürüm: 2.0.0\nSSE TV Portu: 8787\n\nGameTranslator (AGPL-3.0) tabanlıdır.")
         }
     }
 
@@ -2757,7 +2743,7 @@ struct MainWindowView: View {
             Image(systemName: "gamecontroller.fill")
                 .font(.system(size: 15))
                 .foregroundStyle(Color.white.opacity(0.9))
-            Text("GameTranslator")
+            Text("Altyazı Köprüsü")
                 .font(.system(size: 14.5, weight: .bold))
                 .foregroundStyle(Color.white)
             Spacer()
@@ -3211,7 +3197,7 @@ struct MainWindowView: View {
             .background(Color(hex: "#FF453A").opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
             .buttonStyle(.plain)
 
-            Button("GameTranslator Hakkında") {
+            Button("Altyazı Köprüsü Hakkında") {
                 state.showAbout = true
             }
             .font(.system(size: 11))
@@ -3307,7 +3293,7 @@ struct MainWindowView: View {
                                                     Text("macOS Ekran Kaydı İzni Gerekli")
                                                         .font(.system(size: 13, weight: .bold))
                                                         .foregroundStyle(Color.white)
-                                                    Text("PS5 oyun görüntüsünü buraya aktarmak ve alt yazıları çevirebilmek için lütfen Sistem Ayarları'ndan GameTranslator'a izin verin.")
+                                                    Text("PS5 oyun görüntüsünü buraya aktarmak ve alt yazıları çevirebilmek için lütfen Sistem Ayarları'ndan Altyazı Köprüsü'ne izin verin.")
                                                         .font(.system(size: 10.5))
                                                         .foregroundStyle(Color.white.opacity(0.8))
                                                         .multilineTextAlignment(.center)
@@ -4216,7 +4202,7 @@ struct MainWindowView: View {
             Text("Nasıl Kullanılır? (Hızlı Rehber)").font(.system(size: 12.5, weight: .bold)).foregroundStyle(Color.white)
             VStack(alignment: .leading, spacing: 9) {
                 guideItem(num: "1", title: "PS5 & TV", text: "PS5 konsolunuzu açın ve TV'deki HDMI portuna geçin. PS5 doğrudan TV'ye bağlı kalır.")
-                guideItem(num: "2", title: "TV Uygulaması", text: "TV'nizde GameTranslator (veya CouchSubs) uygulamasını açın. Mac'e otomatik olarak bağlanır.")
+                guideItem(num: "2", title: "TV Uygulaması", text: "TV'nizde Altyazı Köprüsü (veya CouchSubs) uygulamasını açın. Mac'e otomatik olarak bağlanır.")
                 guideItem(num: "3", title: "Okuma Alanı", text: "Oyununuzun altyazı konumuna göre 'Oyun Okuma Alanı' sekmesinden altyazı kutusunu ayarlayın.")
                 guideItem(num: "4", title: "Başlat", text: "Ana ekrandaki mavi '▶ Çeviriyi Başlat' butonuna tıklayın. Konsol görüntüsü taranıp altyazılar çevrilmeye başlar.")
                 guideItem(num: "5", title: "TV Görünümü", text: "Altyazı rengini (sarı/beyaz), boyutunu ve konumunu zevkinize göre ayarlayın; TV ekranına anında yansır!")
@@ -4279,7 +4265,7 @@ struct SetupWizardView: View {
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(Color(hex: "#0A84FF"))
             VStack(alignment: .leading, spacing: 2) {
-                Text("GameTranslator Kurulum Sihirbazı")
+                Text("Altyazı Köprüsü Kurulum Sihirbazı")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color.white)
                 Text("PlayStation 5 & Akıllı TV Hızlı Yapılandırma")
@@ -4355,7 +4341,7 @@ struct SetupWizardView: View {
                         .foregroundStyle(Color(hex: "#0A84FF"))
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("GameTranslator'a Hoş Geldiniz")
+                    Text("Altyazı Köprüsü'ne Hoş Geldiniz")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(Color.white)
                     Text("PS5 oyunlarındaki İngilizce altyazıları ekrandan okur ve TV'nize anında Türkçe basar.")
@@ -4408,7 +4394,7 @@ struct SetupWizardView: View {
                     Text("İkinci PSN Hesabı Girişi")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(Color.white)
-                    Text("GameTranslator oyunu Remote Play ile izler. İkinci hesap sayesinde ana hesabınızın kumandası hiç kapanmaz.")
+                    Text("Altyazı Köprüsü oyunu Remote Play ile izler. İkinci hesap sayesinde ana hesabınızın kumandası hiç kapanmaz.")
                         .font(.system(size: 11.5))
                         .foregroundStyle(Color.white.opacity(0.7))
                 }
@@ -4945,7 +4931,7 @@ struct SetupWizardView: View {
                                     }
                                     .buttonStyle(.plain)
 
-                                    Text("TV'de 'GameTranslator' uygulamasının açık olduğundan emin olun.")
+                                    Text("TV'de 'Altyazı Köprüsü' uygulamasının açık olduğundan emin olun.")
                                         .font(.system(size: 10.5))
                                         .foregroundStyle(Color.white.opacity(0.7))
                                 }
@@ -5170,7 +5156,7 @@ struct SetupWizardView: View {
                     Text("Bağlantıyı Test Edin")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(Color.white)
-                    Text("GameTranslator şimdi TV ekranınıza örnek bir Türkçe altyazı gönderecek.")
+                    Text("Altyazı Köprüsü şimdi TV ekranınıza örnek bir Türkçe altyazı gönderecek.")
                         .font(.system(size: 11.5))
                         .foregroundStyle(Color.white.opacity(0.7))
                 }

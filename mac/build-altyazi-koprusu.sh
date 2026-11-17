@@ -1,0 +1,109 @@
+#!/bin/bash
+# Altyazı Köprüsü macOS derleme betiği (GameTranslator tabanlı, AGPL-3.0).
+# Kullanım: mac/build-altyazi-koprusu.sh [çıktı_klasörü]   (varsayılan: <repo>/../teslim)
+# Yalnızca çıktı klasörüne yazar. /Applications'a kurmaz, karantina özniteliğine dokunmaz, zip üretmez.
+set -euo pipefail
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT="$(cd "$DIR/.." && pwd)"
+OUT="${1:-$ROOT/../teslim}"
+mkdir -p "$OUT"
+OUT="$(cd "$OUT" && pwd)"
+APP="$OUT/AltyaziKoprusu.app"
+MACOS="$APP/Contents/MacOS"
+RES="$APP/Contents/Resources"
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/altyazi-build.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
+
+echo "==> Swift derleniyor"
+swiftc -O -parse-as-library -target arm64-apple-macos14.0 "$DIR/NativeApp.swift" -o "$WORK/AltyaziKoprusu"
+
+echo "==> Paket hazırlanıyor: $APP"
+rm -rf "$APP"
+mkdir -p "$MACOS" "$RES"
+cp "$WORK/AltyaziKoprusu" "$MACOS/AltyaziKoprusu"
+chmod +x "$MACOS/AltyaziKoprusu"
+
+cat > "$APP/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>AltyaziKoprusu</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.altyazikoprusu.mac</string>
+	<key>CFBundleName</key>
+	<string>Altyazı Köprüsü</string>
+	<key>CFBundleDisplayName</key>
+	<string>Altyazı Köprüsü</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>NSHighResolutionCapable</key>
+	<true/>
+	<key>NSScreenCaptureUsageDescription</key>
+	<string>Altyazı Köprüsü, PS5 oyun görüntüsünü analiz ederek altyazıları Türkçeye çevirir.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Altyazı Köprüsü, çevrilen altyazıları göndermek için yerel ağdaki PS5 ve televizyonu bulur.</string>
+</dict>
+</plist>
+PLIST
+plutil -lint "$APP/Contents/Info.plist"
+
+echo "==> Simge"
+ICON_SRC="$ROOT/design/altyazi-koprusu/icon-1024.png"
+if [ -f "$ICON_SRC" ]; then
+  SET="$WORK/AppIcon.iconset"
+  mkdir -p "$SET"
+  for s in 16 32 128 256 512; do
+    sips -z $s $s "$ICON_SRC" --out "$SET/icon_${s}x${s}.png" >/dev/null
+    sips -z $((s*2)) $((s*2)) "$ICON_SRC" --out "$SET/icon_${s}x${s}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$SET" -o "$RES/AppIcon.icns"
+else
+  echo "UYARI: $ICON_SRC yok, simge eklenmedi."
+fi
+
+echo "==> Kaynaklar"
+[ -f "$DIR/GameTranslator/Resources/game-frame.png" ] && cp "$DIR/GameTranslator/Resources/game-frame.png" "$RES/"
+
+mkdir -p "$RES/tv-app"
+APK="$ROOT/tv/android/app/build/outputs/apk/release/app-release.apk"
+if [ -f "$APK" ]; then
+  cp "$APK" "$RES/tv-app/altyazi-koprusu-tv.apk"
+else
+  echo "UYARI: TV APK bulunamadı ($APK); pakete eklenmedi."
+fi
+
+# Yalnızca metin/betik biçimindeki yardımcılar (hazır ikili dosya KOPYALANMAZ).
+mkdir -p "$RES/scripts"
+cp "$ROOT/scripts/android-tv-install.py" "$RES/scripts/android-tv-install.py"
+chmod +x "$RES/scripts/android-tv-install.py"
+
+mkdir -p "$RES/ps5-register"
+cp "$ROOT/scripts/gametranslator-ps5-register" "$RES/ps5-register/"
+cp "$ROOT/scripts/ps5-register.js" "$RES/ps5-register/"
+chmod +x "$RES/ps5-register/gametranslator-ps5-register"
+if [ -d "$ROOT/scripts/ps5-register/node_modules" ]; then
+  cp -R "$ROOT/scripts/ps5-register/node_modules" "$RES/ps5-register/node_modules"
+else
+  echo "UYARI: ps5-register/node_modules yok; PS5 eşleştirme çalışmaz."
+fi
+
+# Lisans bildirimleri
+for f in LICENSE NOTICE THIRD-PARTY-NOTICES.md; do
+  [ -f "$ROOT/$f" ] && cp "$ROOT/$f" "$RES/"
+done
+
+echo "==> Ad-hoc imza"
+codesign --force --deep --sign - "$APP"
+codesign --verify --deep --strict "$APP"
+echo "Hazır: $APP"
