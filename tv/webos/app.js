@@ -309,16 +309,20 @@
 
   function showScreen(items, duration) {
     var host = $('screen');
-    // "Ekran çevriliyor…" yazısı sonuçların üstünde kalmasın.
-    hideSubtitle('screen');
     host.innerHTML = '';
     host.className = '';
     var width = window.innerWidth || 1920;
     var height = window.innerHeight || 1080;
+    var anyFull = false;
     for (var i = 0; i < (items || []).length; i++) {
       var item = items[i];
       var box = validBox(item && item.box);
       if (!box || !item.text) continue;
+      if (SUB.isInfoItem(item)) {
+        if (load('infoBoxes') !== '0') showInfoItem(host, item, box, width, height);
+        continue;
+      }
+      anyFull = true;
       var el = document.createElement('div');
       el.className = item.paragraphs === true ? 'item paragraphs' : 'item';
       el.textContent = item.text;
@@ -340,9 +344,44 @@
         el.style.fontSize = size + 'px';
       }
     }
+    // "Ekran çevriliyor…" yazısı tam ekran sonuçlarının üstünde kalmasın; yalnız bilgi kutusu gelirse ana altyazı korunur.
+    if (anyFull) hideSubtitle('screen');
     clearTimeout(screenTimer);
     screenTimer = setTimeout(hideScreen, duration || 20000);
   }
+
+  // Bilgi kutusu çevirisi: İngilizce kutunun altında ayrı blok; ana altyazıya dokunmaz.
+  var INFO_MAX_LINES = 6;
+  var INFO_MIN_FONT = 16;
+
+  function showInfoItem(host, item, box, width, height) {
+    var s = curSub();
+    var line = typeof item.line === 'number' && item.line > 0 ? item.line : 0.03;
+    var margin = Math.min(s.margin, Math.floor(width / 2) - 1);
+    var el = document.createElement('div');
+    el.className = 'info-item';
+    el.textContent = item.text;
+    var opacity = s.bgOpacity > 0 ? s.bgOpacity : 60;
+    el.style.background = SUB.rgba(s.bgColor, opacity);
+    el.style.color = s.textColor;
+    var size = Math.max(26, Math.round(0.9 * line * height));
+    var rect = SUB.belowRect(box, line, width, height, margin, 0);
+    el.style.left = rect.left + 'px';
+    el.style.width = rect.width + 'px';
+    el.style.top = rect.top + 'px';
+    host.appendChild(el);
+    for (var guard = 0; guard < 60; guard++) {
+      el.style.fontSize = size + 'px';
+      rect = SUB.belowRect(box, line, width, height, margin, el.offsetHeight);
+      el.style.top = rect.top + 'px';
+      var maxLines = size * 1.25 * INFO_MAX_LINES + 12;
+      if ((el.offsetHeight <= rect.maxHeight && el.offsetHeight <= maxLines) || size <= INFO_MIN_FONT) break;
+      size -= 2;
+    }
+  }
+
+  // Yalnız geliştirme önizlemesi (dev-preview ?demoInfo=1) için.
+  window.GT_DEBUG_SCREEN = function (data) { showScreen(data.items, data.duration); };
 
   function hideScreen() {
     clearTimeout(screenTimer);
@@ -1209,6 +1248,7 @@
       { label: t('mRun'), value: stopped ? t('mRunOff') : t('mRunOn'), ok: toggleRun },
       { label: t('mSettings'), value: '▶', ok: openSettings },
       { label: t('mTest'), value: testOn ? t('mOn') : t('mOff'), ok: toggleTest, left: toggleTest, right: toggleTest },
+      { label: t('mInfoBoxes'), value: load('infoBoxes') === '0' ? t('mOff') : t('mOn'), ok: toggleInfoBoxes, left: toggleInfoBoxes, right: toggleInfoBoxes },
       ipItem,
       { label: t('mScan'), value: scanning ? t('mScanStarted') : '', cls: 'action', ok: rescan },
       { label: t('mHdmi'), value: '◀ ' + hdmiPort + ' ▶', left: function () { stepHdmi(-1); }, right: function () { stepHdmi(1); }, ok: function () { stepHdmi(1); } },
@@ -1216,6 +1256,13 @@
     ];
     if (platform.exit) items.push({ label: t('mExit'), cls: 'action', ok: function () { platform.exit(); } });
     return items;
+  }
+
+  function toggleInfoBoxes() {
+    var on = load('infoBoxes') === '0';
+    save('infoBoxes', on ? '1' : '0');
+    if (!on) hideScreen();
+    renderMenu();
   }
 
   function renderMenu() {

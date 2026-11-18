@@ -67,6 +67,19 @@ html, body {
   word-wrap: break-word;
   overflow: hidden;
 }
+/* Bilgi kutusu çevirisi: İngilizce kutunun hemen altında, sola yaslı, kendi yarı saydam zeminiyle. */
+#screen .info-item {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-weight: 600;
+  line-height: 1.25;
+  text-align: left;
+  text-shadow: 0 1px 2px #000;
+  word-wrap: break-word;
+  overflow: hidden;
+}
 #screen .item.paragraphs { text-align: left; white-space: pre-line; }
 
 /* Hızlı konuşmada önceki satır kısa süre yeni satırın üstünde, daha soluk durur. */

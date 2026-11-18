@@ -57,6 +57,20 @@
       localAddress: function (callback) { callback('192.168.1.50'); },
       exit: function () { console.log('platform.exit()'); }
     };
+    // ?demoInfo=1: GTA tarzı bilgi kutusu için örnek bir "screen" öğesi (İngilizce kutunun altında çeviri görünür).
+    // Kutunun yerini gösteren soluk çerçeve de çizilir. ?demoInfo=1&demoSub=1 ana altyazıyı da gösterir.
+    if (/[?&]demoInfo=1/.test(location.search)) {
+      window.addEventListener('load', function () {
+        setTimeout(function () {
+          var ghost = document.createElement('div');
+          ghost.style.cssText = 'position:absolute;z-index:7;left:2%;top:28%;width:21%;height:12%;border:2px dashed #fff8;box-sizing:border-box;color:#fffa;font:22px sans-serif;padding:6px';
+          ghost.textContent = 'Press X to climb the ladder and hold to crouch behind cover. (English box)';
+          document.body.appendChild(ghost);
+          window.GT_DEMO_INFO = { duration: 600000, items: [{ text: 'Merdivene tırmanmak için X tuşuna bas, siperin arkasında çömelmek için basılı tut.', source: 'Press X to climb the ladder and hold to crouch behind cover.', box: { left: 0.02, top: 0.28, right: 0.23, bottom: 0.40 }, line: 0.022, placement: 'below' }] };
+          if (window.GT_DEBUG_SCREEN) window.GT_DEBUG_SCREEN(window.GT_DEMO_INFO);
+        }, 500);
+      });
+    }
     // r/g/b tuşlarını kumandanın renk tuşlarına çevirir.
     var COLOR_KEYS = { r: 403, g: 404, b: 406 };
     document.addEventListener('keydown', function (e) {

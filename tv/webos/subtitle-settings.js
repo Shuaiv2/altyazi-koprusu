@@ -180,6 +180,36 @@
     return 'show';
   }
 
+  // Bilgi kutusu çevirisi: oyunun İngilizce kutusunun HEMEN ALTINA konur. box/line normalleştirilmiş (0..1).
+  // Genişlik = max(kutu genişliği, ekranın %22'si), ekran içine (margin) sıkıştırılır; boşluk = 0.6 x satır yüksekliği.
+  // contentHeight verilirse ve alta sığmıyorsa yukarı kayar ama İngilizce kutunun altından yukarı çıkmaz.
+  // Dönüş: { left, top, width, maxHeight, gap } (px); maxHeight = alt kenar boşluğuna kadar kalan yükseklik.
+  function belowRect(box, line, vw, vh, margin, contentHeight) {
+    var w = Math.max(1, num(vw, 1920)), h = Math.max(1, num(vh, 1080));
+    var m = Math.max(0, Math.min(num(margin, 48), Math.floor(w / 2) - 1));
+    var ln = num(line, 0.03);
+    if (!(ln > 0)) ln = 0.03;
+    var gap = Math.round(0.6 * ln * h);
+    var boxW = Math.max(0, (num(box.right, 0) - num(box.left, 0)) * w);
+    var width = Math.min(Math.max(boxW, 0.22 * w), w - 2 * m);
+    var left = clamp(num(box.left, 0) * w, m, w - m - width);
+    var boxBottom = num(box.bottom, 0) * h;
+    var top = boxBottom + gap;
+    var ch = Math.max(0, num(contentHeight, 0));
+    if (ch > 0 && top + ch > h - m) top = Math.max(boxBottom, h - m - ch);
+    top = Math.min(top, Math.max(boxBottom, h - m - 1));
+    return { left: Math.round(left), top: Math.round(top), width: Math.round(width), maxHeight: Math.max(0, Math.round(h - m - top)), gap: gap };
+  }
+
+  // placement yoksa: üst %60'taki ve %40'tan dar kutu bilgi kutusu sayılır; placement 'below' ise kesin evet, başka değerse hayır.
+  function isInfoItem(item) {
+    if (!item || typeof item !== 'object') return false;
+    if (typeof item.placement === 'string') return item.placement === 'below';
+    var b = item.box;
+    if (!b || item.paragraphs === true) return false;
+    return num(b.top, 1) < 0.6 && (num(b.right, 1) - num(b.left, 0)) < 0.4;
+  }
+
   // '#rrggbb' + 0–100 saydamlık -> 'rgba(r, g, b, a)'
   function rgba(hex, opacityPercent) {
     var h = isHex(hex) ? hex : '#000000';
@@ -203,6 +233,8 @@
     presets: presets,
     computeRect: computeRect,
     clampPosition: clampPosition,
+    belowRect: belowRect,
+    isInfoItem: isInfoItem,
     acceptSubtitle: acceptSubtitle,
     rgba: rgba
   };

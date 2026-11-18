@@ -133,5 +133,33 @@
   }
   ok(overflow > 0, 'taşan içerik durumu denendi');
 
+  // --- belowRect / isInfoItem ---
+  var gtaBox = { left: 0.02, top: 0.28, right: 0.23, bottom: 0.40 };
+  var r1 = S.belowRect(gtaBox, 0.02, 1920, 1080, 48, 0);
+  eq(r1.left, 48, 'sol kenar boşluğuna çekilir (0.02*1920=38 < 48)');
+  eq(r1.width, Math.round(0.22 * 1920), 'dar kutu: genişlik ekranın %22 si');
+  ok(r1.width >= Math.round(0.22 * 1920) - 1, 'en az %22');
+  eq(r1.top, Math.round(0.40 * 1080 + 0.6 * 0.02 * 1080), 'üst = alt + 0.6 x satır');
+  ok(r1.top > 0.40 * 1080, 'İngilizce kutuyu örtmez');
+  var r2 = S.belowRect({ left: 0.85, top: 0.3, right: 0.97, bottom: 0.4 }, 0.02, 1920, 1080, 48, 0);
+  eq(r2.left + r2.width, 1920 - 48, 'sağ kenarda sağ boşluğa dayanır');
+  ok(r2.left >= 48, 'sol sınır içinde');
+  var r3 = S.belowRect({ left: 0.1, top: 0.8, right: 0.3, bottom: 0.95 }, 0.02, 1920, 1080, 48, 200);
+  ok(r3.top >= 0.95 * 1080, 'altta: yukarı kayar ama kutunun altından yukarı çıkmaz');
+  eq(r3.top, Math.round(0.95 * 1080), 'altta üst = kutunun alt kenarı');
+  ok(r3.maxHeight <= 1080 - 48 - r3.top + 1, 'maxHeight alt boşlukla sınırlı');
+  var r4 = S.belowRect({ left: 0.0, top: 0.2, right: 1.0, bottom: 0.3 }, 0.02, 1920, 1080, 48, 100);
+  eq(r4.left, 48, 'çok geniş kutu: sol boşluk');
+  eq(r4.width, 1920 - 96, 'çok geniş kutu: genişlik ekrana sıkıştırılır');
+  var r5 = S.belowRect(gtaBox, 0.02, 1920, 1080, 48, 100);
+  ok(r5.top + 100 <= 1080 - 48, 'sığan içerik kaydırılmaz');
+  eq(r5.top, r1.top, 'sığan içerikte üst değişmez');
+  ok(S.isInfoItem({ placement: 'below', box: gtaBox }), 'placement below');
+  ok(!S.isInfoItem({ placement: 'over', box: gtaBox }), 'placement başka -> hayır');
+  ok(S.isInfoItem({ box: gtaBox }), 'placement yok, üst-sol dar kutu -> bilgi');
+  ok(!S.isInfoItem({ box: { left: 0.1, top: 0.8, right: 0.3, bottom: 0.9 } }), 'placement yok, alttaki kutu -> hayır');
+  ok(!S.isInfoItem({ box: { left: 0.1, top: 0.1, right: 0.6, bottom: 0.2 } }), 'placement yok, geniş kutu -> hayır');
+  ok(!S.isInfoItem({ box: gtaBox, paragraphs: true }), 'paragraphs -> hayır');
+
   print('PASS: ' + count + ' denetim, ' + checked + ' computeRect kombinasyonu (' + overflow + ' taşan içerik)');
 })();
