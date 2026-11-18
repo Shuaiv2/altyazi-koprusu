@@ -2185,6 +2185,14 @@ final class AppState {
     @ObservationIgnored private var streamProcess: Process? = nil
     @ObservationIgnored private var captureTimer: Timer? = nil
     @ObservationIgnored private var isProcessingOCR: Bool = false
+    @ObservationIgnored private var ocrStartedAt: Date = .distantPast
+    @ObservationIgnored private var ocrGeneration: Int = 0
+    @ObservationIgnored private var lastBusyLogAt: Date = .distantPast
+    @ObservationIgnored private var busySkipCount: Int = 0
+    @ObservationIgnored private var lastTargetWindowId: CGWindowID? = nil
+    @ObservationIgnored private var windowMissingLogged: Bool = false
+    @ObservationIgnored private var reconnectAttempts: Int = 0
+    private let maxReconnectAttempts = 5
     @ObservationIgnored private var lastSentText: String = ""
     @ObservationIgnored private var stabilizer = SubtitleStabilizer()
 
@@ -2322,7 +2330,7 @@ final class AppState {
             }
         }
 
-        let geom = "640x360+\(cx)+\(cy)"
+        let geom = "1280x720+\(cx)+\(cy)"
 
         if let binary = chiakiPath {
             let apps = NSWorkspace.shared.runningApplications
@@ -2338,8 +2346,23 @@ final class AppState {
                     "--exit-app-on-stream-exit",
                     "stream", "PS5-sefflex", host
                 ]
+                p.terminationHandler = { [weak self, weak p] proc in
+                    let status = proc.terminationStatus
+                    DispatchQueue.main.async {
+                        guard let self = self, let p = p else { return }
+                        self.handleChiakiExit(p, status: status)
+                    }
+                }
                 try? p.run()
                 self.streamProcess = p
+                let launched = p
+                DispatchQueue.main.asyncAfter(deadline: .now() + 30) { [weak self] in
+                    guard let self = self, self.isRunning, self.streamProcess === launched, launched.isRunning else { return }
+                    if self.reconnectAttempts != 0 {
+                        if SubtitleDebug.enabled { SubtitleDebug.log("akış 30 sn stabil, yeniden bağlanma sayacı sıfırlandı") }
+                        self.reconnectAttempts = 0
+                    }
+                }
             }
         }
 
@@ -2385,9 +2408,9 @@ final class AppState {
         self.liveEnglish = "PS5 Canlı Akışı Bekleniyor"
         self.liveTurkish = "Çeviri Durduruldu"
 
-        if let p = streamProcess, p.isRunning {
-            p.terminate()
-            streamProcess = nil
+        if let p = streamProcess {
+            streamProcess = nil   // terminationHandler bunu kullanıcı kaynaklı çıkış sayar (yeniden bağlanma yok)
+            if p.isRunning { p.terminate() }
         }
 
         let pkill = Process()
@@ -2402,22 +2425,63 @@ final class AppState {
 
     private var noTextCounter: Int = 0
 
+    /// chiaki süreci kapandı. Kullanıcı durdurmadıysa (isRunning hâlâ açık ve süreç hâlâ güncel süreç) 5 sn sonra yeniden başlatır.
+    private func handleChiakiExit(_ p: Process, status: Int32) {
+        guard isRunning, streamProcess === p else {
+            if SubtitleDebug.enabled { SubtitleDebug.log("chiaki çıktı (durum \(status)); kullanıcı durdurmuş, yeniden bağlanma yok") }
+            return
+        }
+        streamProcess = nil
+        if SubtitleDebug.enabled { SubtitleDebug.log("chiaki beklenmedik çıktı (durum \(status)), deneme \(reconnectAttempts)/\(maxReconnectAttempts)") }
+        guard reconnectAttempts < maxReconnectAttempts else {
+            gameFrameImage = nil
+            ps5Connected = false
+            liveEnglish = "PS5 connection lost"
+            liveTurkish = "PS5 bağlantısı kurulamadı (5/5 deneme). 'Çeviriyi Durdur' ve yeniden 'Başlat' ile tekrar deneyin."
+            return
+        }
+        reconnectAttempts += 1
+        let attempt = reconnectAttempts
+        ps5Connected = false
+        liveEnglish = "PS5 connection lost"
+        liveTurkish = "PS5 bağlantısı koptu, yeniden deneniyor (\(attempt)/\(maxReconnectAttempts))…"
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+            guard let self = self, self.isRunning, self.streamProcess == nil else { return }
+            if SubtitleDebug.enabled { SubtitleDebug.log("chiaki yeniden başlatılıyor (\(attempt)/\(self.maxReconnectAttempts))") }
+            self.startStreamAndOCR()
+        }
+    }
+
     func tickStreamCaptureAndOCR() {
         let options = CGWindowListOption([.optionOnScreenOnly, .excludeDesktopElements])
         guard let windowInfoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return }
 
+        // Birden çok eşleşen pencere olabilir (menü, küçük yardımcı pencereler): en büyük normal (layer 0) pencereyi seç.
         var targetWindowId: CGWindowID? = nil
+        var bestArea: Double = 0
         for info in windowInfoList {
             if let owner = info[kCGWindowOwnerName as String] as? String,
                (owner.localizedCaseInsensitiveContains("chiaki") ||
                 owner.localizedCaseInsensitiveContains("Remote") ||
                 owner.localizedCaseInsensitiveContains("PlayStation")),
                let windowId = info[kCGWindowNumber as String] as? CGWindowID {
-                targetWindowId = windowId
-                break
+                let layer = (info[kCGWindowLayer as String] as? Int) ?? 0
+                guard layer == 0 else { continue }
+                var area: Double = 1
+                if let b = info[kCGWindowBounds as String] as? [String: Any],
+                   let w = (b["Width"] as? NSNumber)?.doubleValue, let h = (b["Height"] as? NSNumber)?.doubleValue {
+                    area = w * h
+                }
+                if area > bestArea { bestArea = area; targetWindowId = windowId }
             }
         }
 
+        if targetWindowId != lastTargetWindowId {
+            if SubtitleDebug.enabled {
+                SubtitleDebug.log("hedef chiaki penceresi: \(lastTargetWindowId.map { String($0) } ?? "yok") -> \(targetWindowId.map { String($0) } ?? "bulunamadı")")
+            }
+            lastTargetWindowId = targetWindowId
+        }
         guard let wid = targetWindowId else {
             return
         }
@@ -2457,8 +2521,25 @@ final class AppState {
             self.ps5Connected = true
         }
 
-        guard !isProcessingOCR else { return }
+        if isProcessingOCR, Date().timeIntervalSince(ocrStartedAt) > 3.0 {
+            // Takılan geçiş: sıfırla, geç gelen sonuçları yok say.
+            SubtitleDebug.log("OCR takıldı, sıfırlanıyor")
+            ocrGeneration += 1
+            isProcessingOCR = false
+        }
+        guard !isProcessingOCR else {
+            busySkipCount += 1
+            if SubtitleDebug.enabled, Date().timeIntervalSince(lastBusyLogAt) >= 2.0 {
+                SubtitleDebug.log("tik atlandı: OCR meşgul (\(busySkipCount) kez, \(String(format: "%.1f", Date().timeIntervalSince(ocrStartedAt))) sn)")
+                lastBusyLogAt = Date()
+                busySkipCount = 0
+            }
+            return
+        }
         isProcessingOCR = true
+        ocrStartedAt = Date()
+        ocrGeneration += 1
+        let gen = ocrGeneration
 
         let vW = Double(pureVideoCg.width)
         let vH = Double(pureVideoCg.height)
@@ -2474,11 +2555,18 @@ final class AppState {
         }
 
         let subtitleOnly = self.filterNoise
+        let dbg = SubtitleDebug.enabled
+        if dbg { SubtitleDebug.log("OCR #\(gen): kare \(pureVideoCg.width)x\(pureVideoCg.height), kırpma \(cropped.width)x\(cropped.height)") }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             defer {
-                DispatchQueue.main.async { self?.isProcessingOCR = false }
+                DispatchQueue.main.async {
+                    // Yalnızca hâlâ güncel geçişse bayrağı kaldır (sıfırlanmış eski geçiş yeni durumu bozmasın).
+                    guard let self = self, self.ocrGeneration == gen else { return }
+                    self.isProcessingOCR = false
+                }
             }
             guard let self = self else { return }
+            let t0 = Date()
 
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
@@ -2489,14 +2577,21 @@ final class AppState {
             do {
                 try handler.perform([request])
                 guard let results = request.results, !results.isEmpty else {
-                    DispatchQueue.main.async { self.handleEmptyOCRFrame() }
+                    if dbg { SubtitleDebug.log("OCR #\(gen): Vision sonucu 0 satır (\(Int(Date().timeIntervalSince(t0) * 1000)) ms)") }
+                    DispatchQueue.main.async {
+                        guard self.ocrGeneration == gen else { return }
+                        self.handleEmptyOCRFrame()
+                    }
                     return
                 }
+                if dbg { SubtitleDebug.log("OCR #\(gen): Vision \(results.count) sonuç (\(Int(Date().timeIntervalSince(t0) * 1000)) ms)") }
 
                 // Satır satır: OcrNoise temizliği -> (isteğe bağlı) altyazı süzgeci -> birleştirme.
                 var ocrLines: [OCRLine] = []
                 for obs in results {
-                    guard let top = obs.topCandidates(1).first, top.confidence >= 0.35 else { continue }
+                    guard let top = obs.topCandidates(1).first else { continue }
+                    if dbg { SubtitleDebug.log("  ham: \"\(top.string)\" güven=\(String(format: "%.2f", top.confidence))\(top.confidence >= 0.35 ? "" : " (düşük güven, atıldı)")") }
+                    guard top.confidence >= 0.35 else { continue }
                     let text = OcrNoise.clean(top.string.trimmingCharacters(in: .whitespacesAndNewlines))
                     guard !text.isEmpty else { continue }
                     ocrLines.append(OCRLine(text: text, box: obs.boundingBox, confidence: top.confidence))
@@ -2506,12 +2601,19 @@ final class AppState {
                     if SubtitleDebug.enabled {
                         for d in verdict.dropped { SubtitleDebug.log("elendi [\(d.reason.rawValue)] \(d.line.text)") }
                     }
+                    if SubtitleDebug.enabled {
+                        for k in verdict.kept { SubtitleDebug.log("tutuldu: \(k.text)") }
+                    }
                     ocrLines = verdict.kept
                 }
 
                 let detectedText = ocrLines.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                if dbg { SubtitleDebug.log("OCR #\(gen): birleşik metin: \"\(detectedText)\"") }
                 guard detectedText.count >= 2 else {
-                    DispatchQueue.main.async { self.handleEmptyOCRFrame() }
+                    DispatchQueue.main.async {
+                        guard self.ocrGeneration == gen else { return }
+                        self.handleEmptyOCRFrame()
+                    }
                     return
                 }
 
@@ -2552,17 +2654,30 @@ final class AppState {
                 }
 
                 DispatchQueue.main.async {
+                    // Sıfırlanmış (takılmış sayılmış) eski geçişin geç sonucu yeni durumu ezmesin.
+                    guard self.ocrGeneration == gen else {
+                        if dbg { SubtitleDebug.log("OCR #\(gen): bayat sonuç yok sayıldı") }
+                        return
+                    }
                     self.noTextCounter = 0
                     // Kararlılık: metin birkaç kare değişmeden durana kadar gönderme; aynı metni yeniden gönderme.
-                    switch self.stabilizer.feed(detectedText) {
-                    case .translate: break
+                    let action = self.stabilizer.feed(detectedText)
+                    switch action {
+                    case .translate:
+                        if dbg { SubtitleDebug.log("OCR #\(gen): stabilizer -> translate") }
                     case .clear:
+                        if dbg { SubtitleDebug.log("OCR #\(gen): stabilizer -> clear") }
                         self.lastSentText = ""
                         self.server.clearSubtitle()
                         return
-                    case .none: return
+                    case .none:
+                        if dbg { SubtitleDebug.log("OCR #\(gen): stabilizer -> none") }
+                        return
                     }
-                    guard detectedText != self.lastSentText else { return }
+                    guard detectedText != self.lastSentText else {
+                        if dbg { SubtitleDebug.log("OCR #\(gen): aynı metin zaten gönderilmiş, atlandı") }
+                        return
+                    }
                     self.lastSentText = detectedText
                     self.liveEnglish = detectedText
                     self.lastBox = currentBox
@@ -2583,13 +2698,24 @@ final class AppState {
                     }
 
                     Task {
+                        let tr0 = Date()
                         let result = await self.translateText(detectedText)
                         await MainActor.run {
+                            if dbg {
+                                SubtitleDebug.log("çeviri: sağlayıcı=\(result.provider) \(result.text != nil ? "ok" : "HATA: \(result.error ?? "çeviri yok")") \(Int(Date().timeIntervalSince(tr0) * 1000)) ms")
+                            }
                             // Çeviri yoksa (yerel motor hazır değil, yedek kapalı) İngilizceyi Türkçe diye göndermeyiz.
                             self.server.provider = result.provider
-                            guard let turkish = result.text else { return }
+                            guard let turkish = result.text else {
+                                // Hata: satır "gönderildi" sayılmasın, kararlı kaldıkça yeniden denensin.
+                                self.lastSentText = ""
+                                self.stabilizer.forgetSent()
+                                if dbg { SubtitleDebug.log("sendSubtitle ÇAĞRILMADI (çeviri yok)") }
+                                return
+                            }
                             self.liveTurkish = turkish
                             self.server.sendSubtitle(turkish: turkish, original: detectedText, box: currentBox)
+                            if dbg { SubtitleDebug.log("sendSubtitle çağrıldı: \"\(turkish)\"") }
 
                             let entry = SubtitleEntry(turkish: turkish, english: detectedText, timestamp: self.currentTime())
                             self.history.insert(entry, at: 0)
@@ -2598,7 +2724,7 @@ final class AppState {
                     }
                 }
             } catch {
-                // ignore
+                if dbg { SubtitleDebug.log("OCR #\(gen): Vision hatası: \(error.localizedDescription)") }
             }
         }
     }
@@ -2687,7 +2813,8 @@ final class AppState {
             return TranslationOutcome(text: finalFallback, provider: label)
         }
 
-        return TranslationOutcome(text: clean, provider: label)
+        // Hiçbir yol çalışmadı: İngilizceyi Türkçe diye göndermeyiz.
+        return TranslationOutcome(text: nil, provider: label, error: "tüm çeviri yolları başarısız")
     }
 
     /// Geliştirici testi (ALTYAZI_DEV=1): canlı OCR ile aynı yoldan TV'ye gönderir.
@@ -3047,6 +3174,7 @@ final class AppState {
             return
         }
         isRunning.toggle()
+        reconnectAttempts = 0
         if isRunning {
             ps5Connected = true
             liveTurkish = "PS5 Canlı Akışına Bağlanılıyor..."
