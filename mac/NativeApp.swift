@@ -2195,6 +2195,8 @@ final class AppState {
     private let maxReconnectAttempts = 5
     @ObservationIgnored private var lastSentText: String = ""
     @ObservationIgnored private var stabilizer = SubtitleStabilizer()
+    @ObservationIgnored private var sentenceJoiner = SentenceJoiner()
+    @ObservationIgnored private var fillerTask: Task<Void, Never>?
 
     func syncChiakiConfig(cx: Int = 400, cy: Int = 250) {
         let host = UserDefaults.standard.string(forKey: "gt_ps5_host") ?? ps5Host
@@ -2405,6 +2407,8 @@ final class AppState {
         self.ps5Connected = false
         self.lastSentText = ""
         _ = self.stabilizer.reset()
+        self.sentenceJoiner.reset()
+        self.fillerTask?.cancel()
         self.liveEnglish = "PS5 Canlı Akışı Bekleniyor"
         self.liveTurkish = "Çeviri Durduruldu"
 
@@ -2697,9 +2701,28 @@ final class AppState {
                         self.syncStyleToTV()
                     }
 
+                    // Ekrana bölünmüş cümleleri birleştir; devam parçasında tüm cümle çevrilip gönderilir.
+                    self.fillerTask?.cancel()
+                    let joined = self.sentenceJoiner.feed(detectedText, at: Date().timeIntervalSinceReferenceDate)
+                    let sourceText = joined.source
+                    if joined.hold {
+                        // Tek başına dolgu ("well...", "uh..."): sonraki parçayla çevrilsin; 6 sn gelmezse tek başına gönder.
+                        self.fillerTask = Task { [weak self] in
+                            try? await Task.sleep(nanoseconds: UInt64(SentenceJoiner.maxGap * 1_000_000_000))
+                            guard !Task.isCancelled, let self else { return }
+                            let r = await self.translateText(GameEnglish.plain(sourceText))
+                            guard !Task.isCancelled, let t = r.text else { return }
+                            await MainActor.run {
+                                self.liveTurkish = t
+                                self.server.sendSubtitle(turkish: t, original: sourceText, box: currentBox)
+                            }
+                        }
+                        return
+                    }
+
                     Task {
                         let tr0 = Date()
-                        let result = await self.translateText(detectedText)
+                        let result = await self.translateText(GameEnglish.plain(sourceText))
                         await MainActor.run {
                             if dbg {
                                 SubtitleDebug.log("çeviri: sağlayıcı=\(result.provider) \(result.text != nil ? "ok" : "HATA: \(result.error ?? "çeviri yok")") \(Int(Date().timeIntervalSince(tr0) * 1000)) ms")
@@ -2714,10 +2737,10 @@ final class AppState {
                                 return
                             }
                             self.liveTurkish = turkish
-                            self.server.sendSubtitle(turkish: turkish, original: detectedText, box: currentBox)
+                            self.server.sendSubtitle(turkish: turkish, original: sourceText, box: currentBox)
                             if dbg { SubtitleDebug.log("sendSubtitle çağrıldı: \"\(turkish)\"") }
 
-                            let entry = SubtitleEntry(turkish: turkish, english: detectedText, timestamp: self.currentTime())
+                            let entry = SubtitleEntry(turkish: turkish, english: sourceText, timestamp: self.currentTime())
                             self.history.insert(entry, at: 0)
                             if self.history.count > 50 { self.history.removeLast() }
                         }

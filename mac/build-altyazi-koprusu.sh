@@ -18,8 +18,8 @@ trap 'rm -rf "$WORK"' EXIT
 
 echo "==> Swift derleniyor"
 CORE="$ROOT/core/Sources/GameTranslatorCore"
-swiftc -O -parse-as-library -target arm64-apple-macos14.0 "$DIR/NativeApp.swift" "$DIR/SubtitleFilter.swift" \
-  "$CORE/SubtitleStabilizer.swift" "$CORE/OcrNoise.swift" "$CORE/TextMatch.swift" -o "$WORK/AltyaziKoprusu"
+swiftc -O -parse-as-library -target arm64-apple-macos14.0 "$DIR/NativeApp.swift" "$DIR/SubtitleFilter.swift" "$DIR/SentenceJoiner.swift" \
+  "$CORE/SubtitleStabilizer.swift" "$CORE/OcrNoise.swift" "$CORE/TextMatch.swift" "$CORE/GameEnglish.swift" -o "$WORK/AltyaziKoprusu"
 
 echo "==> Paket hazırlanıyor: $APP"
 rm -rf "$APP"
