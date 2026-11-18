@@ -397,7 +397,7 @@ public enum OCRAreaPreset: String, CaseIterable, Identifiable {
 public final class AppState {
     public var isRunning: Bool = false
     public var ps5Connected: Bool = true
-    public var psnEmail: String = "sefflexpsplus@gmail.com"
+    public var psnEmail: String = ""
     public var tvConnected: Bool = true
     public var tvDeviceName: String = "TCL Android TV (192.168.1.105:5555)"
     

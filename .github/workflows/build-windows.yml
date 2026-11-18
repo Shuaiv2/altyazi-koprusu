@@ -1,0 +1,64 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CHIAKI_VERSION: '1.10.1'
+  # Resmi chiaki-ng v1.10.1 sürümünün GitHub release API'sinden alınan SHA-256 değeri (2026-11).
+  CHIAKI_SHA256: '6ca3f5e6780608104d79345ab7755cfa77fefc33a41ae10651a874c43f54ea57'
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Test
+        shell: pwsh
+        run: |
+          foreach ($p in Get-ChildItem windows/tests -Filter *.csproj -Recurse) {
+            dotnet test $p.FullName -c Release
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Publish (self-contained win-x64)
+        shell: pwsh
+        run: |
+          dotnet publish windows/src/GameTranslator.App/GameTranslator.App.csproj -c Release -r win-x64 --self-contained -o release-win
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Download chiaki-ng (SHA-256 verified)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/chiaki-ng/chiaki-ng/releases/download/v$env:CHIAKI_VERSION/chiaki-ng-win_x64-MSYS2-portable-$env:CHIAKI_VERSION.zip"
+          Invoke-WebRequest -Uri $url -OutFile chiaki.zip
+          $hash = (Get-FileHash chiaki.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($env:CHIAKI_SHA256 -notmatch '^[0-9a-f]{64}$') { throw "CHIAKI_SHA256 tanımlı değil." }
+          if ($hash -ne $env:CHIAKI_SHA256) { throw "chiaki-ng SHA-256 uyuşmuyor: $hash" }
+          Expand-Archive -Path chiaki.zip -DestinationPath chiaki_temp -Force
+          New-Item -ItemType Directory -Force -Path release-win/chiaki | Out-Null
+          Copy-Item -Path "chiaki_temp/chiaki-ng-Win/*" -Destination release-win/chiaki -Recurse -Force
+          Remove-Item chiaki_temp, chiaki.zip -Recurse -Force
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path release-win/* -DestinationPath AltyaziKoprusu-Windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AltyaziKoprusu-Windows-x64
+          path: AltyaziKoprusu-Windows-x64.zip
+          if-no-files-found: error

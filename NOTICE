@@ -12,3 +12,21 @@ This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU Affero General Public License version 3 (see LICENSE).
 This notice and the license notices must be kept intact in copies and modified
 versions (AGPL-3.0, section 4 and 5).
+
+
+Altyazı Köprüsü değişiklikleri
+------------------------------
+
+Altyazı Köprüsü (2026-11), yukarıda anılan GameTranslator'ın değiştirilmiş bir
+çatalıdır (https://gitlab.com/sefflex/GameTranslator). Bu çatalda yapılan
+başlıca değişiklikler:
+
+- Yeniden adlandırma (Altyazı Köprüsü) ve yeni uygulama kimlikleri/simge.
+- Android TV uygulamasında altyazı ayarları arayüzü ve uzaktan düzen (remote layout) menüsü.
+- Mac'te Apple cihaz üstü (yerel) çeviri desteği.
+- Altyazı süzgeçleri (OCR gürültüsü, tekrar ve kararsız satırların elenmesi).
+- Cümle birleştirici (birden çok ekrana yayılan cümlelerin birleştirilmesi).
+- HDMI giriş seçimi ve HDMI ile ilgili düzeltmeler.
+- Derleme/yayın akışının sadeleştirilmesi; hazır derlenmiş ikili dosyaların depodan kaldırılması.
+
+Değişikliklerin tam listesi bu deponun git geçmişindedir.

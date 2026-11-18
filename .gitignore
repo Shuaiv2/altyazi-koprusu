@@ -33,3 +33,16 @@ couchsubs*
 # Mobil derleme için klonlanan chiaki-ng kaynakları
 third-party/chiaki-ng/
 !mobile/assets/*.jpg
+
+# Altyazı Köprüsü
+tv/android/local.properties
+tv/android/.gradle/
+tv/android/build/
+tv/android/app/build/
+dist/
+teslim/
+*.app
+*.apk
+*.ipk
+*.wgt
+release-win/
