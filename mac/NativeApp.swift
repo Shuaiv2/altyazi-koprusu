@@ -7,6 +7,7 @@ import WebKit
 import Darwin
 import Vision
 import Combine
+import Translation
 
 // MARK: - App Delegate (Dock Icon, Persistent Window, Background Stability)
 
@@ -87,9 +88,27 @@ public final class NativeSubtitleServer: @unchecked Sendable {
     private var providerName = ""
     public var provider: String {
         get { providerLock.lock(); defer { providerLock.unlock() }; return providerName }
-        set { providerLock.lock(); providerName = newValue; providerLock.unlock() }
+        set {
+            providerLock.lock()
+            let changed = providerName != newValue
+            providerName = newValue
+            providerLock.unlock()
+            if changed { broadcastProviderStyle(newValue) }
+        }
     }
 
+    private func styleJSON(withProvider p: String) -> [String: Any] {
+        var j = lastStyle.json
+        if !p.isEmpty { j["provider"] = p }
+        return j
+    }
+
+    private func broadcastProviderStyle(_ p: String) {
+        queue.async { self.broadcast(event: "style", json: self.styleJSON(withProvider: p)) }
+    }
+
+    /// Yalnızca ALTYAZI_DEV=1 iken: /translate-test için çeviri + gönderim; JSON gövdesi döner.
+    public var onTranslateTest: (@Sendable (String) async -> String)?
     public var onClientsChanged: ((Int) -> Void)?
     /// TV bağlantı sayısı (izleyici olmayan) veya TV'nin bildirdiği düzen değiştiğinde ana iş parçacığında çağrılır.
     public var onTVStatusChanged: (() -> Void)?
@@ -191,8 +210,11 @@ public final class NativeSubtitleServer: @unchecked Sendable {
     }
 
     public func sendStyle(_ style: SubtitleStyle) {
-        queue.async { self.lastStyle = style }
-        broadcast(event: "style", json: style.json)
+        let p = provider
+        queue.async {
+            self.lastStyle = style
+            self.broadcast(event: "style", json: self.styleJSON(withProvider: p))
+        }
     }
 
     private func accept(_ connection: NWConnection) {
@@ -270,6 +292,20 @@ public final class NativeSubtitleServer: @unchecked Sendable {
             respondAndClose(connection, status: "200 OK", body: Self.obsHtml, type: "text/html; charset=utf-8")
         } else if method == "GET" && path == "/hello" {
             respondAndClose(connection, status: "200 OK", body: #"{"app":"gametranslator","version":"2.0"}"#, type: "application/json")
+        } else if method == "GET" && path == "/translate-test",
+                  ProcessInfo.processInfo.environment["ALTYAZI_DEV"] == "1",
+                  let handler = onTranslateTest {
+            var text = ""
+            if let query = target.components(separatedBy: "?").dropFirst().first {
+                for pair in query.components(separatedBy: "&") where pair.hasPrefix("text=") {
+                    let raw = String(pair.dropFirst(5)).replacingOccurrences(of: "+", with: " ")
+                    text = raw.removingPercentEncoding ?? raw
+                }
+            }
+            Task {
+                let body = await handler(text)
+                self.respondAndClose(connection, status: "200 OK", body: body, type: "application/json; charset=utf-8")
+            }
         } else if (method == "GET" || method == "POST") && path == "/test" {
             self.sendSubtitle(turkish: "🎮 Altyazı Köprüsü Canlı Altyazı Testi Başarılı!", original: "Altyazı Köprüsü Live Subtitle Test Successful!", durationMs: 15000)
             respondAndClose(connection, status: "200 OK", body: #"{"status":"ok","message":"Test altyazisi gonderildi"}"#, type: "application/json")
@@ -311,7 +347,7 @@ public final class NativeSubtitleServer: @unchecked Sendable {
         head += "Connection: keep-alive\r\n"
         head += "Access-Control-Allow-Origin: *\r\n\r\n"
         head += "retry: 2000\n\n"
-        head += Self.frame(event: "style", json: lastStyle.json)
+        head += Self.frame(event: "style", json: styleJSON(withProvider: provider))
         connection.send(content: Data(head.utf8), completion: .contentProcessed { _ in })
 
         let id = ObjectIdentifier(connection)
@@ -772,6 +808,230 @@ class CustomSubtitleStore: ObservableObject {
     }
 }
 
+// MARK: - Apple Translation (Mac'te, çevrimdışı) — LocalTranslator
+
+enum LocalStatus: Equatable {
+    case unknown, installed, supported, unsupported
+}
+
+enum LocalTranslationError: Error, Equatable {
+    case notInstalled
+    case unsupported
+    case sessionUnavailable
+    case failed(String)
+
+    var message: String {
+        switch self {
+        case .notInstalled: "dil paketi indirilmemiş"
+        case .unsupported: "bu dil çifti desteklenmiyor"
+        case .sessionUnavailable: "çeviri oturumu hazır değil"
+        case .failed(let m): "çeviri başarısız (\(m))"
+        }
+    }
+}
+
+/// Bir çeviri isteği. Tek sefer çözülür (zaman aşımı ile oturum yarışabilir).
+private final class LocalRequest: @unchecked Sendable {
+    let text: String?            // nil => dil paketi hazırlama (indirme)
+    private let lock = NSLock()
+    private var cont: CheckedContinuation<Result<String, LocalTranslationError>, Never>?
+    private var early: Result<String, LocalTranslationError>?
+    init(text: String?) { self.text = text }
+
+    func wait() async -> Result<String, LocalTranslationError> {
+        await withCheckedContinuation { c in
+            lock.lock()
+            if let e = early { lock.unlock(); c.resume(returning: e); return }
+            cont = c
+            lock.unlock()
+        }
+    }
+
+    func resolve(_ r: Result<String, LocalTranslationError>) {
+        lock.lock()
+        if early != nil { lock.unlock(); return }
+        early = r
+        let c = cont
+        cont = nil
+        lock.unlock()
+        c?.resume(returning: r)
+    }
+}
+
+@Observable
+final class LocalTranslator: @unchecked Sendable {
+    var status: LocalStatus = .unknown
+    var isPreparing = false
+    var prepareMessage: String? = nil
+    /// Hedef dil kodu (uygulamadaki kod: tr, de, zh...). Değişince host yapılandırmayı yeniler.
+    var targetCode: String = "tr" {
+        didSet { if oldValue != targetCode { status = .unknown; Task { await refreshStatus() } } }
+    }
+    /// Oturum döngüsü şu an çalışıyor mu (host görünümü yaşıyor mu)?
+    private(set) var sessionAlive = false
+    @ObservationIgnored var onStatusChanged: (() -> Void)?
+    @ObservationIgnored private var continuation: AsyncStream<LocalRequest>.Continuation?
+    @ObservationIgnored private var lastStatusCheck = Date.distantPast
+    @ObservationIgnored private var generation = 0
+
+    /// Apple Translation'ın beklediği dil tanımlayıcısı.
+    static func languageID(_ code: String) -> String {
+        switch code {
+        case "zh": return "zh-Hans"
+        case "pt": return "pt-BR"
+        default: return code
+        }
+    }
+
+    @MainActor
+    func refreshStatus() async {
+        lastStatusCheck = Date()
+        var new: LocalStatus = .unsupported
+        if #available(macOS 15.0, *), targetCode != "en" {
+            let s = await LanguageAvailability().status(
+                from: Locale.Language(identifier: "en"),
+                to: Locale.Language(identifier: Self.languageID(targetCode)))
+            switch s {
+            case .installed: new = .installed
+            case .supported: new = .supported
+            default: new = .unsupported
+            }
+        }
+        if new != status {
+            status = new
+            onStatusChanged?()
+        }
+    }
+
+    // Host (translationTask) tarafından çağrılır; oturum yaşadığı sürece döner.
+    @MainActor
+    @available(macOS 15.0, *)
+    func serve(_ session: TranslationSession) async {
+        let (stream, cont) = AsyncStream<LocalRequest>.makeStream()
+        generation += 1
+        let myGen = generation
+        continuation?.finish()
+        continuation = cont
+        sessionAlive = true
+        await refreshStatus()
+        for await req in stream {
+            if let text = req.text {
+                do {
+                    let r = try await session.translate(text)
+                    req.resolve(.success(r.targetText))
+                } catch {
+                    req.resolve(.failure(.failed(String(describing: type(of: error)))))
+                }
+            } else {
+                do {
+                    try await session.prepareTranslation()
+                    req.resolve(.success(""))
+                } catch {
+                    req.resolve(.failure(.failed(String(describing: type(of: error)))))
+                }
+            }
+        }
+        // Akış kapandı/iptal: oturum artık yok.
+        cont.finish()
+        if generation == myGen {
+            continuation = nil
+            sessionAlive = false
+        }
+    }
+
+    /// Host görünümü kaybolursa / yapılandırma yenilenirse çağrılır.
+    @MainActor
+    func sessionEnded() {
+        continuation?.finish()
+        continuation = nil
+        sessionAlive = false
+    }
+
+    @MainActor
+    private func enqueue(_ req: LocalRequest, timeout: TimeInterval) async -> Result<String, LocalTranslationError> {
+        guard let continuation, sessionAlive else { return .failure(.sessionUnavailable) }
+        continuation.yield(req)
+        let timer = Task {
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+            req.resolve(.failure(.failed("zaman aşımı")))
+        }
+        let r = await req.wait()
+        timer.cancel()
+        return r
+    }
+
+    @MainActor
+    func translate(_ text: String) async -> Result<String, LocalTranslationError> {
+        guard #available(macOS 15.0, *) else { return .failure(.unsupported) }
+        if status != .installed && Date().timeIntervalSince(lastStatusCheck) > 5 { await refreshStatus() }
+        switch status {
+        case .installed: break
+        case .supported: return .failure(.notInstalled)
+        case .unsupported: return .failure(.unsupported)
+        case .unknown: return .failure(.sessionUnavailable)
+        }
+        let r = await enqueue(LocalRequest(text: text), timeout: 2.0)
+        if case .success(let t) = r {
+            let c = t.trimmingCharacters(in: .whitespacesAndNewlines)
+            return c.isEmpty ? .failure(.failed("boş sonuç")) : .success(c)
+        }
+        return r
+    }
+
+    /// Dil paketini indirmeyi başlatır (sistem onay penceresi gösterebilir).
+    @MainActor
+    func prepareDownload() async {
+        guard #available(macOS 15.0, *), !isPreparing else { return }
+        isPreparing = true
+        prepareMessage = nil
+        let r = await enqueue(LocalRequest(text: nil), timeout: 900)
+        isPreparing = false
+        if case .failure(let e) = r { prepareMessage = "İndirme başlatılamadı: \(e.message)" }
+        await refreshStatus()
+    }
+}
+
+#if canImport(Translation)
+/// Ana pencerenin arkasında yaşayan görünmez host. TranslationSession yalnızca .translationTask içinde elde edilir.
+struct TranslationHostView: View {
+    let local: LocalTranslator
+    var body: some View {
+        if #available(macOS 15.0, *) {
+            TranslationHostImpl(local: local)
+        } else {
+            Color.clear.frame(width: 0, height: 0)
+        }
+    }
+}
+
+@available(macOS 15.0, *)
+private struct TranslationHostImpl: View {
+    let local: LocalTranslator
+    @State private var config: TranslationSession.Configuration?
+
+    private func makeConfig() -> TranslationSession.Configuration {
+        TranslationSession.Configuration(
+            source: Locale.Language(identifier: "en"),
+            target: Locale.Language(identifier: LocalTranslator.languageID(local.targetCode)))
+    }
+
+    var body: some View {
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .onAppear { config = makeConfig() }
+            .onDisappear { local.sessionEnded() }
+            .onChange(of: local.targetCode) { _, _ in
+                local.sessionEnded()
+                config = makeConfig()
+            }
+            .translationTask(config) { session in
+                await local.serve(session)
+            }
+    }
+}
+#endif
+
 enum TranslationModel: String, CaseIterable, Identifiable {
     case patch = "patch"
     case appleLocal = "local_apple"
@@ -784,30 +1044,30 @@ enum TranslationModel: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .patch: "🎮 Hazır Oyun Yaması & Topluluk Paketi (0ms)"
-        case .appleLocal: "1. Apple Yerel Çeviri (NPU)"
+        case .appleLocal: "1. Apple Çeviri (Mac'te, çevrimdışı)"
         case .gemini: "2. Google Gemini 2.5 Flash"
         case .deepL: "3. DeepL API"
-        case .marian: "4. Yerel Derin Öğrenme (MarianMT)"
+        case .marian: "4. Google ücretsiz (resmi olmayan)"
         }
     }
 
     var badge: String {
         switch self {
         case .patch: "%100 İnsan Çevirisi"
-        case .appleLocal: "Aktif (0ms)"
+        case .appleLocal: "Çevrimdışı"
         case .gemini: "Yapay Zeka"
         case .deepL: "Pro Dilbilgisi"
-        case .marian: "GPU / CPU"
+        case .marian: "İnternet"
         }
     }
 
     var desc: String {
         switch self {
         case .patch: "Oyunun orijinal Türkçe yama metinlerini doğrudan kullanır. Sıfır gecikmeyle profesyonel insan çevirisi basar. Yamada bulunmayan ara cümleleri otomatik yapay zekayla tamamlar."
-        case .appleLocal: "Mac'inizin Apple Neural Engine (NPU) çipini kullanır. Tamamen çevrimdışı, internet gerektirmez, 0 ms gecikmeyle anında TV'ye basar."
+        case .appleLocal: "Apple Çeviri ile Mac'te çevirir; dil paketi gerekir (Sistem Ayarları → Genel → Dil ve Bölge → Çeviri Dilleri). Metin Mac'ten çıkmaz."
         case .gemini: "GTA 6 gibi oyunlardaki diyalogları, sokak argosunu ve hikaye bağlamını en akıllı ve doğal şekilde çevirir."
         case .deepL: "Dünyanın en yüksek doğruluklu dilbilgisi motoru. DeepL Free veya Pro API anahtarı gerektirir."
-        case .marian: "İnternetsiz açık kaynaklı derin öğrenme çeviri ağı. Bilgisayarınızın donanımını doğrudan kullanır."
+        case .marian: "Metni Google'a gönderir. Resmi olmayan, anahtarsız uç noktadır; hız sınırına takılabilir (429). Yerel değildir."
         }
     }
 }
@@ -1486,7 +1746,26 @@ final class AppState {
     var targetLanguage: String = UserDefaults.standard.string(forKey: "gt_target_language") ?? "tr" {
         didSet {
             UserDefaults.standard.set(targetLanguage, forKey: "gt_target_language")
+            local.targetCode = targetLanguage
         }
+    }
+
+    // Apple Çeviri (cihaz üstü)
+    let local = LocalTranslator()
+    var localStatus: LocalStatus { local.status }
+    var allowOnlineFallback: Bool = UserDefaults.standard.bool(forKey: "gt_local_online_fallback") {
+        didSet { UserDefaults.standard.set(allowOnlineFallback, forKey: "gt_local_online_fallback") }
+    }
+    /// Çeviri motoru hakkında kısa durum notu (anahtar içermez).
+    var translatorNotice: String? = nil
+    @ObservationIgnored private var gtxBlockedUntil: Date? = nil
+
+    /// TV'ye gönderilen sağlayıcı adı (yerel paket hazır değilse bunu belirtir).
+    var providerLabel: String {
+        if selectedModel == .appleLocal && local.status != .installed && local.status != .unknown {
+            return local.status == .unsupported ? "Apple Çeviri — dil desteklenmiyor" : "Apple Çeviri — dil paketi gerekli"
+        }
+        return selectedModel.title
     }
     
     // Model & API Keys
@@ -1499,7 +1778,7 @@ final class AppState {
     }() {
         didSet {
             UserDefaults.standard.set(selectedModel.rawValue, forKey: "gt_selected_model")
-            server.provider = selectedModel.title
+            server.provider = providerLabel
         }
     }
     
@@ -2283,8 +2562,11 @@ final class AppState {
                     }
 
                     Task {
-                        let turkish = await self.translateText(detectedText)
+                        let result = await self.translateText(detectedText)
                         await MainActor.run {
+                            // Çeviri yoksa (yerel motor hazır değil, yedek kapalı) İngilizceyi Türkçe diye göndermeyiz.
+                            self.server.provider = result.provider
+                            guard let turkish = result.text else { return }
                             self.liveTurkish = turkish
                             self.server.sendSubtitle(turkish: turkish, original: detectedText, box: currentBox)
 
@@ -2300,66 +2582,96 @@ final class AppState {
         }
     }
 
-    func translateText(_ text: String) async -> String {
+    struct TranslationOutcome {
+        var text: String?      // nil => çeviri yok, TV'ye gönderme
+        var provider: String
+        var error: String?
+    }
+
+    func translateText(_ text: String) async -> TranslationOutcome {
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !clean.isEmpty else { return text }
+        guard !clean.isEmpty else { return TranslationOutcome(text: text, provider: providerLabel) }
 
         // 1. ÖZEL ALTYAZI KONTROLÜ (Custom Subtitles & Community Packs - 0ms)
         if let custom = CustomSubtitleStore.shared.lookup(clean) {
-            return custom
+            return TranslationOutcome(text: custom, provider: providerLabel)
         }
 
         let target = self.targetLanguage
+        let label = providerLabel
 
         // 2. KULLANICININ SEÇTİĞİ MODEL
         switch selectedModel {
         case .patch:
-            // Yama modunda öncelikle yama metinleri arandı; eğer bu replik henüz yamada yoksa
-            // oyuncunun deneyimi bölünmesin diye yapay zeka (Gemini) veya güvenilir yedekle tamamla
             if !geminiApiKey.isEmpty {
                 if let tr = await translateGemini(text: clean, key: geminiApiKey, targetLang: target) {
-                    return tr
+                    return TranslationOutcome(text: tr, provider: label)
                 }
             }
             if let fallback = await translateGoogleGTX(text: clean, targetLang: target) {
-                return fallback
+                return TranslationOutcome(text: fallback, provider: label)
             }
 
         case .gemini:
             if !geminiApiKey.isEmpty {
                 if let tr = await translateGemini(text: clean, key: geminiApiKey, targetLang: target) {
-                    return tr
+                    return TranslationOutcome(text: tr, provider: label)
                 }
             }
-            // Gemini API anahtarı yoksa veya hata verirse otomatik güvenilir yedek
             if let fallback = await translateGoogleGTX(text: clean, targetLang: target) {
-                return fallback
+                return TranslationOutcome(text: fallback, provider: label)
             }
 
         case .deepL:
             if !deepLApiKey.isEmpty {
                 if let tr = await translateDeepL(text: clean, key: deepLApiKey, targetLang: target) {
-                    return tr
+                    return TranslationOutcome(text: tr, provider: label)
                 }
             }
-            // DeepL API anahtarı yoksa veya kota bittiyse otomatik güvenilir yedek
             if let fallback = await translateGoogleGTX(text: clean, targetLang: target) {
-                return fallback
+                return TranslationOutcome(text: fallback, provider: label)
             }
 
-        case .appleLocal, .marian:
-            // Yerel NPU / Marian model akışı
+        case .appleLocal:
+            // Gerçek cihaz üstü çeviri: metin Mac'ten çıkmaz.
+            switch await local.translate(clean) {
+            case .success(let tr):
+                return TranslationOutcome(text: tr, provider: label)
+            case .failure(let err):
+                if allowOnlineFallback, let tr = await translateGoogleGTX(text: clean, targetLang: target) {
+                    return TranslationOutcome(text: tr, provider: "Google ücretsiz (yedek)")
+                }
+                return TranslationOutcome(text: nil, provider: label, error: err.message)
+            }
+
+        case .marian:
+            // Eski ham değer korunur; artık dürüstçe Google ücretsiz (resmi olmayan) uç noktasıdır.
             if let tr = await translateGoogleGTX(text: clean, targetLang: target) {
-                return tr
+                return TranslationOutcome(text: tr, provider: label)
             }
         }
 
         // Son Çare: Çoklu Google Mirror Motoru
         if let finalFallback = await translateGoogleGTX(text: clean, targetLang: target) {
-            return finalFallback
+            return TranslationOutcome(text: finalFallback, provider: label)
         }
 
-        return clean
+        return TranslationOutcome(text: clean, provider: label)
+    }
+
+    /// Geliştirici testi (ALTYAZI_DEV=1): canlı OCR ile aynı yoldan TV'ye gönderir.
+    func devTranslateTest(_ text: String) async -> String {
+        let r = await translateText(text)
+        await MainActor.run { self.server.provider = r.provider }
+        if let t = r.text {
+            await MainActor.run {
+                self.server.sendSubtitle(turkish: t, original: text)
+            }
+        }
+        var obj: [String: Any] = ["ok": r.text != nil, "provider": r.provider]
+        if let t = r.text { obj["result"] = t } else { obj["error"] = r.error ?? "çeviri yok" }
+        let data = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data("{}".utf8)
+        return String(decoding: data, as: UTF8.self)
     }
 
     // MARK: - Google Gemini 2.5 Flash Yapay Zeka Çeviri Motoru
@@ -2468,6 +2780,10 @@ final class AppState {
     }
 
     private func translateGoogleGTXEndpoint(text: String, targetLang: String) async -> String? {
+        if let until = gtxBlockedUntil {
+            if Date() < until { return nil }
+            gtxBlockedUntil = nil
+        }
         var comp = URLComponents(string: "https://translate.googleapis.com/translate_a/single")
         comp?.queryItems = [
             URLQueryItem(name: "client", value: "gtx"),
@@ -2482,7 +2798,15 @@ final class AppState {
         req.timeoutInterval = 4.0
 
         guard let (data, resp) = try? await URLSession.shared.data(for: req),
-              let http = resp as? HTTPURLResponse, http.statusCode == 200,
+              let http = resp as? HTTPURLResponse else { return nil }
+        if http.statusCode == 429 || http.statusCode == 403 {
+            gtxBlockedUntil = Date().addingTimeInterval(600)
+            let msg = "Google ücretsiz uç nokta HTTP \(http.statusCode) verdi; 10 dk atlanacak, yedek ayna kullanılacak."
+            print(msg)
+            await MainActor.run { self.translatorNotice = msg }
+            return nil
+        }
+        guard http.statusCode == 200,
               let json = try? JSONSerialization.jsonObject(with: data) as? [Any],
               let sentences = json.first as? [Any] else {
             return nil
@@ -2608,7 +2932,7 @@ final class AppState {
            let model = TranslationModel(rawValue: savedModel) {
             self.selectedModel = model
         }
-        server.provider = selectedModel.title
+        server.provider = providerLabel
         if let gemKey = UserDefaults.standard.string(forKey: "gt_gemini_key") {
             self.geminiApiKey = gemKey
         }
@@ -2622,6 +2946,18 @@ final class AppState {
         }
         TVLayoutEditor.shared.server = server
         server.onTVStatusChanged = { TVLayoutEditor.shared.pushStatus() }
+        local.targetCode = targetLanguage
+        local.onStatusChanged = { [weak self] in
+            guard let self else { return }
+            self.server.provider = self.providerLabel
+        }
+        Task { await self.local.refreshStatus() }
+        if ProcessInfo.processInfo.environment["ALTYAZI_DEV"] == "1" {
+            server.onTranslateTest = { [weak self] text in
+                guard let self else { return #"{"ok":false,"error":"state"}"# }
+                return await self.devTranslateTest(text)
+            }
+        }
         server.start()
         syncStyleToTV()
         syncChiakiConfig()
@@ -2781,6 +3117,7 @@ struct MainWindowView: View {
         }
         .frame(minWidth: 970, idealWidth: 1010, minHeight: 640, idealHeight: 680)
         .background(WindowConfigurator())
+        .background(TranslationHostView(local: state.local))
         .animation(.easeInOut(duration: 0.22), value: state.showSetup)
         .onAppear {
             _ = state.checkScreenCapturePermission()
@@ -3910,7 +4247,9 @@ struct MainWindowView: View {
                         }
                     }
 
-                    if model == .patch {
+                    if model == .appleLocal {
+                        localTranslationSection
+                    } else if model == .patch {
                         VStack(alignment: .leading, spacing: 8) {
                             HStack(spacing: 8) {
                                 Button {
@@ -4064,6 +4403,50 @@ struct MainWindowView: View {
                 .overlay(RoundedRectangle(cornerRadius: 8).stroke(state.selectedModel == model ? Color(hex: "#0A84FF").opacity(0.4) : Color.white.opacity(0.08), lineWidth: 1))
                 .contentShape(Rectangle())
                 .onTapGesture { state.selectedModel = model }
+            }
+        }
+    }
+
+    private var localTranslationSection: some View {
+        let langTitle = SupportedLanguage(rawValue: state.targetLanguage)?.title ?? state.targetLanguage
+        return VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                switch state.local.status {
+                case .installed:
+                    Text("\(langTitle) dil paketi: kurulu ✓").foregroundStyle(Color.green)
+                case .supported:
+                    Text("\(langTitle) dil paketi: indirilmemiş").foregroundStyle(Color.orange)
+                    Button(state.local.isPreparing ? "İndiriliyor…" : "İndir") {
+                        Task { await state.local.prepareDownload() }
+                    }
+                    .disabled(state.local.isPreparing || !state.local.sessionAlive)
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .padding(.horizontal, 10).padding(.vertical, 4)
+                    .background(Color(hex: "#0A84FF"), in: RoundedRectangle(cornerRadius: 5))
+                    .buttonStyle(.plain)
+                case .unsupported:
+                    Text("\(langTitle) için Apple Çeviri desteklenmiyor").foregroundStyle(Color.red)
+                case .unknown:
+                    Text("\(langTitle) dil paketi: denetleniyor…").foregroundStyle(Color.white.opacity(0.6))
+                }
+            }
+            .font(.system(size: 10.5, weight: .medium))
+            if state.local.status == .supported {
+                Text("veya Sistem Ayarları → Genel → Dil ve Bölge → Çeviri Dilleri")
+                    .font(.system(size: 9.5)).foregroundStyle(Color.white.opacity(0.6))
+            }
+            if let m = state.local.prepareMessage {
+                Text(m).font(.system(size: 9.5)).foregroundStyle(Color.orange)
+            }
+            Toggle(isOn: $state.allowOnlineFallback) {
+                Text("İnternet yedeğine izin ver (Google ücretsiz)").font(.system(size: 10.5))
+                    .foregroundStyle(Color.white)
+            }
+            .toggleStyle(.checkbox)
+            Text("Açıkken yerel çeviri başarısız olursa metin Google'a gönderilir; kapalıyken metin Mac'ten çıkmaz ve çeviri yoksa TV'ye bir şey gönderilmez.")
+                .font(.system(size: 9.5)).foregroundStyle(Color.white.opacity(0.6))
+            if let n = state.translatorNotice {
+                Text(n).font(.system(size: 9.5)).foregroundStyle(Color.orange)
             }
         }
     }
