@@ -1,6 +1,7 @@
 #!/bin/bash
 # Altyazı Köprüsü macOS derleme betiği (GameTranslator tabanlı, AGPL-3.0).
 # Kullanım: mac/build-altyazi-koprusu.sh [çıktı_klasörü]   (varsayılan: <repo>/../teslim)
+# Altyazı süzgeci testleri: bkz. mac/tests/README.md
 # Yalnızca çıktı klasörüne yazar. /Applications'a kurmaz, karantina özniteliğine dokunmaz, zip üretmez.
 set -euo pipefail
 
@@ -16,7 +17,9 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/altyazi-build.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
 echo "==> Swift derleniyor"
-swiftc -O -parse-as-library -target arm64-apple-macos14.0 "$DIR/NativeApp.swift" -o "$WORK/AltyaziKoprusu"
+CORE="$ROOT/core/Sources/GameTranslatorCore"
+swiftc -O -parse-as-library -target arm64-apple-macos14.0 "$DIR/NativeApp.swift" "$DIR/SubtitleFilter.swift" \
+  "$CORE/SubtitleStabilizer.swift" "$CORE/OcrNoise.swift" "$CORE/TextMatch.swift" -o "$WORK/AltyaziKoprusu"
 
 echo "==> Paket hazırlanıyor: $APP"
 rm -rf "$APP"
@@ -42,7 +45,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.1.0</string>
+	<string>1.2.0</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>

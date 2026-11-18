@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * HDMI girişini TvView ile tam ekran gösterir; üstünde şeffaf WebView'de LG ve Samsung'la ortak arayüz çalışır.
@@ -165,10 +166,20 @@ public class MainActivity extends Activity {
         TvInputManager manager = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
         if (manager == null) return inputs;
         for (TvInputInfo input : manager.getTvInputList()) {
-            if (input.getType() == TvInputInfo.TYPE_HDMI && input.isPassthroughInput()) inputs.add(input);
+            if (input.getType() == TvInputInfo.TYPE_HDMI && input.isPassthroughInput()
+                    && input.getParentId() == null) inputs.add(input);
         }
         Collections.sort(inputs, Comparator.comparing(TvInputInfo::getId));
         return inputs;
+    }
+
+    /** Verilen donanım girişine bağlı CEC alt girişleri (ör. HW5 altındaki HDMI100004). */
+    private List<TvInputInfo> childInputs(TvInputManager manager, String parentId) {
+        List<TvInputInfo> children = new ArrayList<>();
+        for (TvInputInfo input : manager.getTvInputList()) {
+            if (parentId.equals(input.getParentId())) children.add(input);
+        }
+        return children;
     }
 
     private class Bridge {
@@ -188,19 +199,32 @@ public class MainActivity extends Activity {
             });
         }
 
-        /** Tek bağlı HDMI girişi varsa onun numarası, yoksa 0. */
+        /** Tek bağlı HDMI girişi varsa onun numarası, yoksa 0. Alt girişte PlayStation varsa o tercih edilir. */
         @JavascriptInterface
         public int consolePort() {
             TvInputManager manager = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
             if (manager == null) return 0;
             List<TvInputInfo> inputs = hdmiInputs();
             int found = 0;
+            int connectedCount = 0;
+            int playStation = 0;
             for (int i = 0; i < inputs.size(); i++) {
-                if (manager.getInputState(inputs.get(i).getId()) != TvInputManager.INPUT_STATE_CONNECTED) continue;
-                if (found != 0) return 0;
-                found = i + 1;
+                TvInputInfo parent = inputs.get(i);
+                boolean connected = manager.getInputState(parent.getId()) == TvInputManager.INPUT_STATE_CONNECTED;
+                for (TvInputInfo child : childInputs(manager, parent.getId())) {
+                    if (manager.getInputState(child.getId()) == TvInputManager.INPUT_STATE_CONNECTED) connected = true;
+                    CharSequence label = child.loadLabel(MainActivity.this);
+                    if (label != null && label.toString().toLowerCase(Locale.ROOT).contains("playstation")) {
+                        playStation = i + 1;
+                    }
+                }
+                if (connected) {
+                    connectedCount++;
+                    found = i + 1;
+                }
             }
-            return found;
+            if (playStation != 0) return playStation;
+            return connectedCount == 1 ? found : 0;
         }
 
         @JavascriptInterface

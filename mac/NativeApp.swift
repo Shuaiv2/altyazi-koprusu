@@ -9,6 +9,12 @@ import Vision
 import Combine
 import Translation
 
+/// Altyazı süzgeci hata ayıklama günlüğü: AK_DEBUG_FILTER=1 ile açılır (stderr).
+enum SubtitleDebug {
+    static let enabled = ProcessInfo.processInfo.environment["AK_DEBUG_FILTER"] == "1"
+    static func log(_ message: String) { FileHandle.standardError.write(Data(("[altyazi-suzgeci] " + message + "\n").utf8)) }
+}
+
 // MARK: - App Delegate (Dock Icon, Persistent Window, Background Stability)
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -1817,7 +1823,10 @@ final class AppState {
     var cropLeft: Double = 0.16
     var cropRight: Double = 0.84
     var selectedPreset: OCRAreaPreset = .bottomCenter
-    var filterNoise: Bool = true
+    /// Yalnızca oyun altyazısını çevir (tabela, plaka ve tuş ipuçlarını atla).
+    var filterNoise: Bool = UserDefaults.standard.object(forKey: "gt_subtitle_only") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(filterNoise, forKey: "gt_subtitle_only") }
+    }
     
     // Canlı altyazı & Geçmiş
     var liveTurkish: String = "Siz oynarken altyazılar burada görünecek."
@@ -2177,6 +2186,7 @@ final class AppState {
     @ObservationIgnored private var captureTimer: Timer? = nil
     @ObservationIgnored private var isProcessingOCR: Bool = false
     @ObservationIgnored private var lastSentText: String = ""
+    @ObservationIgnored private var stabilizer = SubtitleStabilizer()
 
     func syncChiakiConfig(cx: Int = 400, cy: Int = 250) {
         let host = UserDefaults.standard.string(forKey: "gt_ps5_host") ?? ps5Host
@@ -2371,6 +2381,7 @@ final class AppState {
         self.gameFrameImage = nil
         self.ps5Connected = false
         self.lastSentText = ""
+        _ = self.stabilizer.reset()
         self.liveEnglish = "PS5 Canlı Akışı Bekleniyor"
         self.liveTurkish = "Çeviri Durduruldu"
 
@@ -2462,6 +2473,7 @@ final class AppState {
             return
         }
 
+        let subtitleOnly = self.filterNoise
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             defer {
                 DispatchQueue.main.async { self?.isProcessingOCR = false }
@@ -2477,28 +2489,29 @@ final class AppState {
             do {
                 try handler.perform([request])
                 guard let results = request.results, !results.isEmpty else {
-                    DispatchQueue.main.async {
-                        self.noTextCounter += 1
-                        if self.noTextCounter >= 4 {
-                            self.lastSentText = ""
-                        }
-                    }
+                    DispatchQueue.main.async { self.handleEmptyOCRFrame() }
                     return
                 }
 
-                let lines = results.compactMap { obs -> String? in
-                    guard let top = obs.topCandidates(1).first, top.confidence >= 0.35 else { return nil }
-                    return top.string.trimmingCharacters(in: .whitespacesAndNewlines)
-                }.filter { !$0.isEmpty }
-
-                let detectedText = lines.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
-                guard detectedText.count >= 2 else {
-                    DispatchQueue.main.async {
-                        self.noTextCounter += 1
-                        if self.noTextCounter >= 4 {
-                            self.lastSentText = ""
-                        }
+                // Satır satır: OcrNoise temizliği -> (isteğe bağlı) altyazı süzgeci -> birleştirme.
+                var ocrLines: [OCRLine] = []
+                for obs in results {
+                    guard let top = obs.topCandidates(1).first, top.confidence >= 0.35 else { continue }
+                    let text = OcrNoise.clean(top.string.trimmingCharacters(in: .whitespacesAndNewlines))
+                    guard !text.isEmpty else { continue }
+                    ocrLines.append(OCRLine(text: text, box: obs.boundingBox, confidence: top.confidence))
+                }
+                if subtitleOnly {
+                    let verdict = SubtitleFilter.evaluate(ocrLines)
+                    if SubtitleDebug.enabled {
+                        for d in verdict.dropped { SubtitleDebug.log("elendi [\(d.reason.rawValue)] \(d.line.text)") }
                     }
+                    ocrLines = verdict.kept
+                }
+
+                let detectedText = ocrLines.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                guard detectedText.count >= 2 else {
+                    DispatchQueue.main.async { self.handleEmptyOCRFrame() }
                     return
                 }
 
@@ -2508,9 +2521,8 @@ final class AppState {
                 var maxY: Double = 0.0
                 var foundAny = false
 
-                for obs in results {
-                    guard let top = obs.topCandidates(1).first, top.confidence >= 0.35 else { continue }
-                    let bb = obs.boundingBox
+                for line in ocrLines {
+                    let bb = line.box
                     minX = min(minX, Double(bb.minX))
                     maxX = max(maxX, Double(bb.maxX))
                     minY = min(minY, Double(bb.minY))
@@ -2541,6 +2553,15 @@ final class AppState {
 
                 DispatchQueue.main.async {
                     self.noTextCounter = 0
+                    // Kararlılık: metin birkaç kare değişmeden durana kadar gönderme; aynı metni yeniden gönderme.
+                    switch self.stabilizer.feed(detectedText) {
+                    case .translate: break
+                    case .clear:
+                        self.lastSentText = ""
+                        self.server.clearSubtitle()
+                        return
+                    case .none: return
+                    }
                     guard detectedText != self.lastSentText else { return }
                     self.lastSentText = detectedText
                     self.liveEnglish = detectedText
@@ -2579,6 +2600,16 @@ final class AppState {
             } catch {
                 // ignore
             }
+        }
+    }
+
+    /// Altyazı yok (ya da hepsi elendi): kararlılık izleyicisine boş kare bildir; ekrandan kalktıysa TV'yi temizle.
+    private func handleEmptyOCRFrame() {
+        noTextCounter += 1
+        if noTextCounter >= 4 { lastSentText = "" }
+        if stabilizer.feed("") == .clear {
+            lastSentText = ""
+            server.clearSubtitle()
         }
     }
 
@@ -3937,7 +3968,7 @@ struct MainWindowView: View {
 
             // Butonlar
             HStack {
-                Toggle("Yalnızca Belirgin Altyazıları Algıla", isOn: $state.filterNoise).font(.system(size: 10.5)).toggleStyle(.checkbox)
+                Toggle("Yalnızca oyun altyazısını çevir (tabela, plaka ve tuş ipuçlarını atla)", isOn: $state.filterNoise).font(.system(size: 10.5)).toggleStyle(.checkbox)
                 Spacer()
                 Button("Varsayılan Yap") { state.applyPreset(.bottomCenter) }
                     .font(.system(size: 10.5)).foregroundStyle(Color.white.opacity(0.8)).padding(.horizontal, 10).padding(.vertical, 4)
