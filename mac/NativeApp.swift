@@ -4368,6 +4368,233 @@ struct MainWindowView: View {
         }
     }
 
+    private func languageChip(_ lang: SupportedLanguage) -> some View {
+        let selected: Bool = state.targetLanguage == lang.rawValue
+        let weight: Font.Weight = selected ? .bold : .medium
+        let fg: Color = selected ? Color.white : Color.white.opacity(0.7)
+        let bg: Color = selected ? Color(hex: "#0A84FF") : Color.white.opacity(0.06)
+        let stroke: Color = selected ? Color.white.opacity(0.4) : Color.white.opacity(0.08)
+        let shape = RoundedRectangle(cornerRadius: 6)
+        return Button {
+            state.targetLanguage = lang.rawValue
+        } label: {
+            HStack(spacing: 5) {
+                Text(lang.flag)
+                Text(lang.title)
+                    .font(.system(size: 11, weight: weight))
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .foregroundStyle(fg)
+            .background(bg, in: shape)
+            .overlay(shape.stroke(stroke, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func modelHeader(_ model: TranslationModel) -> some View {
+        let isActive: Bool = state.selectedModel == model
+        return HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.title)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color.white)
+                Text(model.desc)
+                    .font(.system(size: 10.5))
+                    .foregroundStyle(Color.white.opacity(0.65))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            if isActive {
+                activeBadge
+            } else {
+                Text(model.badge)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Color.white.opacity(0.5))
+            }
+        }
+    }
+
+    private var activeBadge: some View {
+        let shape = RoundedRectangle(cornerRadius: 5)
+        return HStack(spacing: 4) {
+            Circle().fill(Color.green).frame(width: 6, height: 6)
+            Text("Aktif")
+                .font(.system(size: 10.5, weight: .bold))
+                .foregroundStyle(Color.green)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 3)
+        .background(Color.green.opacity(0.12), in: shape)
+    }
+
+    @ViewBuilder
+    private func modelCard(_ model: TranslationModel) -> some View {
+        let isSelected: Bool = state.selectedModel == model
+        let cardShape = RoundedRectangle(cornerRadius: 8)
+        let cardFill: Color = isSelected ? Color(hex: "#0A84FF").opacity(0.12) : Color.white.opacity(0.04)
+        let cardStroke: Color = isSelected ? Color(hex: "#0A84FF").opacity(0.4) : Color.white.opacity(0.08)
+        VStack(alignment: .leading, spacing: 7) {
+            modelHeader(model)
+
+            if model == .appleLocal {
+                localTranslationSection
+            } else if model == .patch {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Button {
+                            let panel = NSOpenPanel()
+                            panel.title = "Oyun Yaması Seç (.json, .srt, .txt)"
+                            panel.showsResizeIndicator = true
+                            panel.showsHiddenFiles = false
+                            panel.canChooseFiles = true
+                            panel.canChooseDirectories = false
+                            panel.allowsMultipleSelection = false
+                            panel.allowedContentTypes = [
+                                .json, .text, .plainText,
+                                UTType(filenameExtension: "srt") ?? .text
+                            ]
+                            if panel.runModal() == .OK, let url = panel.url {
+                                let res = CustomSubtitleStore.shared.importFile(url: url)
+                                if res.success {
+                                    state.selectedModel = .patch
+                                    CustomSubtitleStore.shared.isEnabled = true
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Image(systemName: "folder.badge.plus")
+                                Text("📁 Oyun Yaması Yükle (.json, .srt, .txt)")
+                            }
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .foregroundStyle(Color.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color(hex: "#0A84FF"), in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+
+                        if !CustomSubtitleStore.shared.items.isEmpty {
+                            Button {
+                                CustomSubtitleStore.shared.clearAll()
+                            } label: {
+                                Text("Yamayı Kaldır")
+                                    .font(.system(size: 10.5))
+                                    .foregroundStyle(Color(hex: "#FF453A"))
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 5)
+                                    .background(Color(hex: "#FF453A").opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            if let url = URL(string: "https://gitlab.com/sefflex/GameTranslator/-/tree/main/patches") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "arrow.down.circle")
+                                Text("Topluluk Yamaları Deposu ↗")
+                            }
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Color(hex: "#38BDF8"))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(Color(hex: "#38BDF8").opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if !CustomSubtitleStore.shared.items.isEmpty {
+                        HStack(spacing: 6) {
+                            Circle().fill(Color.green).frame(width: 6, height: 6)
+                            Text("Aktif Yama: \(CustomSubtitleStore.shared.activePackName.isEmpty ? "Özel Yama" : CustomSubtitleStore.shared.activePackName)")
+                                .font(.system(size: 10.5, weight: .semibold))
+                                .foregroundStyle(Color.white)
+                            Text("(\(CustomSubtitleStore.shared.items.count) replik hazır)")
+                                .font(.system(size: 10))
+                                .foregroundStyle(Color.white.opacity(0.65))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
+                    } else {
+                        Text("💡 Henüz bir yama yüklenmedi. Orijinal Türkçe yama metinlerinizi (.json / .txt / .srt) yükleyerek 0 ms gecikmeyle %100 insan çevirisi deneyimi yaşayabilirsiniz. Yamada olmayan ara cümleler otomatik yapay zekayla tamamlanır.")
+                            .font(.system(size: 9.5))
+                            .foregroundStyle(Color.white.opacity(0.6))
+                    }
+                }
+            } else if model == .gemini {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        SecureField("Google Gemini API Anahtarı (AI Studio)", text: $state.geminiApiKey)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 10.5))
+                            .padding(6)
+                            .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 5))
+
+                        Button("Kaydet & Aktif Et") {
+                            state.selectedModel = .gemini
+                        }
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color(hex: "#0A84FF"), in: RoundedRectangle(cornerRadius: 5))
+                        .buttonStyle(.plain)
+                    }
+                    HStack {
+                        if !state.geminiApiKey.isEmpty {
+                            Text("✓ API Anahtarı Kaydedildi (gemini-2.5-flash)")
+                                .font(.system(size: 9.5, weight: .medium))
+                                .foregroundStyle(Color.green)
+                        }
+                        Spacer()
+                        Button("Ücretsiz API Anahtarı Al (aistudio.google.com)") {
+                            if let url = URL(string: "https://aistudio.google.com/app/apikey") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                        .font(.system(size: 9.5))
+                        .foregroundStyle(Color(hex: "#38BDF8"))
+                        .buttonStyle(.plain)
+                    }
+                }
+            } else if model == .deepL {
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack {
+                        SecureField("DeepL Auth Key (api-free.deepl.com veya Pro)", text: $state.deepLApiKey)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 10.5))
+                            .padding(6)
+                            .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 5))
+
+                        Button("Kaydet & Aktif Et") {
+                            state.selectedModel = .deepL
+                        }
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color(hex: "#0A84FF"), in: RoundedRectangle(cornerRadius: 5))
+                        .buttonStyle(.plain)
+                    }
+                    if !state.deepLApiKey.isEmpty {
+                        Text("✓ DeepL Anahtarı Kaydedildi")
+                            .font(.system(size: 9.5, weight: .medium))
+                            .foregroundStyle(Color.green)
+                    }
+                }
+            }
+        }
+        .padding(11)
+        .background(cardFill, in: cardShape)
+        .overlay(cardShape.stroke(cardStroke, lineWidth: 1))
+        .contentShape(Rectangle())
+        .onTapGesture { state.selectedModel = model }
+    }
+
     // MARK: - 3. ÇEVİRİ & MODELLER SEKMESİ
     private var modelsTabContent: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -4388,27 +4615,7 @@ struct MainWindowView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(SupportedLanguage.allCases) { lang in
-                            Button {
-                                state.targetLanguage = lang.rawValue
-                            } label: {
-                                HStack(spacing: 5) {
-                                    Text(lang.flag)
-                                    Text(lang.title)
-                                        .font(.system(size: 11, weight: state.targetLanguage == lang.rawValue ? .bold : .medium))
-                                }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .foregroundStyle(state.targetLanguage == lang.rawValue ? Color.white : Color.white.opacity(0.7))
-                                .background(
-                                    state.targetLanguage == lang.rawValue ? Color(hex: "#0A84FF") : Color.white.opacity(0.06),
-                                    in: RoundedRectangle(cornerRadius: 6)
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .stroke(state.targetLanguage == lang.rawValue ? Color.white.opacity(0.4) : Color.white.opacity(0.08), lineWidth: 1)
-                                )
-                            }
-                            .buttonStyle(.plain)
+                            languageChip(lang)
                         }
                     }
                     .padding(.vertical, 2)
@@ -4423,180 +4630,7 @@ struct MainWindowView: View {
                 .foregroundStyle(Color.white)
 
             ForEach(TranslationModel.allCases) { model in
-                VStack(alignment: .leading, spacing: 7) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(model.title).font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.white)
-                            Text(model.desc).font(.system(size: 10.5)).foregroundStyle(Color.white.opacity(0.65)).fixedSize(horizontal: false, vertical: true)
-                        }
-                        Spacer()
-                        if state.selectedModel == model {
-                            HStack(spacing: 4) {
-                                Circle().fill(Color.green).frame(width: 6, height: 6)
-                                Text("Aktif").font(.system(size: 10.5, weight: .bold)).foregroundStyle(Color.green)
-                            }
-                            .padding(.horizontal, 8).padding(.vertical, 3).background(Color.green.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
-                        } else {
-                            Text(model.badge).font(.system(size: 10, weight: .medium)).foregroundStyle(Color.white.opacity(0.5))
-                        }
-                    }
-
-                    if model == .appleLocal {
-                        localTranslationSection
-                    } else if model == .patch {
-                        VStack(alignment: .leading, spacing: 8) {
-                            HStack(spacing: 8) {
-                                Button {
-                                    let panel = NSOpenPanel()
-                                    panel.title = "Oyun Yaması Seç (.json, .srt, .txt)"
-                                    panel.showsResizeIndicator = true
-                                    panel.showsHiddenFiles = false
-                                    panel.canChooseFiles = true
-                                    panel.canChooseDirectories = false
-                                    panel.allowsMultipleSelection = false
-                                    panel.allowedContentTypes = [
-                                        .json, .text, .plainText,
-                                        UTType(filenameExtension: "srt") ?? .text
-                                    ]
-                                    if panel.runModal() == .OK, let url = panel.url {
-                                        let res = CustomSubtitleStore.shared.importFile(url: url)
-                                        if res.success {
-                                            state.selectedModel = .patch
-                                            CustomSubtitleStore.shared.isEnabled = true
-                                        }
-                                    }
-                                } label: {
-                                    HStack(spacing: 5) {
-                                        Image(systemName: "folder.badge.plus")
-                                        Text("📁 Oyun Yaması Yükle (.json, .srt, .txt)")
-                                    }
-                                    .font(.system(size: 10.5, weight: .semibold))
-                                    .foregroundStyle(Color.white)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Color(hex: "#0A84FF"), in: RoundedRectangle(cornerRadius: 6))
-                                }
-                                .buttonStyle(.plain)
-
-                                if !CustomSubtitleStore.shared.items.isEmpty {
-                                    Button {
-                                        CustomSubtitleStore.shared.clearAll()
-                                    } label: {
-                                        Text("Yamayı Kaldır")
-                                            .font(.system(size: 10.5))
-                                            .foregroundStyle(Color(hex: "#FF453A"))
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 5)
-                                            .background(Color(hex: "#FF453A").opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-
-                                Spacer()
-
-                                Button {
-                                    if let url = URL(string: "https://gitlab.com/sefflex/GameTranslator/-/tree/main/patches") {
-                                        NSWorkspace.shared.open(url)
-                                    }
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "arrow.down.circle")
-                                        Text("Topluluk Yamaları Deposu ↗")
-                                    }
-                                    .font(.system(size: 10, weight: .medium))
-                                    .foregroundStyle(Color(hex: "#38BDF8"))
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 5)
-                                    .background(Color(hex: "#38BDF8").opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
-                                }
-                                .buttonStyle(.plain)
-                            }
-
-                            if !CustomSubtitleStore.shared.items.isEmpty {
-                                HStack(spacing: 6) {
-                                    Circle().fill(Color.green).frame(width: 6, height: 6)
-                                    Text("Aktif Yama: \(CustomSubtitleStore.shared.activePackName.isEmpty ? "Özel Yama" : CustomSubtitleStore.shared.activePackName)")
-                                        .font(.system(size: 10.5, weight: .semibold))
-                                        .foregroundStyle(Color.white)
-                                    Text("(\(CustomSubtitleStore.shared.items.count) replik hazır)")
-                                        .font(.system(size: 10))
-                                        .foregroundStyle(Color.white.opacity(0.65))
-                                }
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(Color.green.opacity(0.08), in: RoundedRectangle(cornerRadius: 5))
-                            } else {
-                                Text("💡 Henüz bir yama yüklenmedi. Orijinal Türkçe yama metinlerinizi (.json / .txt / .srt) yükleyerek 0 ms gecikmeyle %100 insan çevirisi deneyimi yaşayabilirsiniz. Yamada olmayan ara cümleler otomatik yapay zekayla tamamlanır.")
-                                    .font(.system(size: 9.5))
-                                    .foregroundStyle(Color.white.opacity(0.6))
-                            }
-                        }
-                    } else if model == .gemini {
-                        VStack(alignment: .leading, spacing: 5) {
-                            HStack {
-                                SecureField("Google Gemini API Anahtarı (AI Studio)", text: $state.geminiApiKey)
-                                    .textFieldStyle(.plain)
-                                    .font(.system(size: 10.5))
-                                    .padding(6)
-                                    .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 5))
-
-                                Button("Kaydet & Aktif Et") {
-                                    state.selectedModel = .gemini
-                                }
-                                .font(.system(size: 10.5, weight: .semibold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(Color(hex: "#0A84FF"), in: RoundedRectangle(cornerRadius: 5))
-                                .buttonStyle(.plain)
-                            }
-                            HStack {
-                                if !state.geminiApiKey.isEmpty {
-                                    Text("✓ API Anahtarı Kaydedildi (gemini-2.5-flash)")
-                                        .font(.system(size: 9.5, weight: .medium))
-                                        .foregroundStyle(Color.green)
-                                }
-                                Spacer()
-                                Button("Ücretsiz API Anahtarı Al (aistudio.google.com)") {
-                                    if let url = URL(string: "https://aistudio.google.com/app/apikey") {
-                                        NSWorkspace.shared.open(url)
-                                    }
-                                }
-                                .font(.system(size: 9.5))
-                                .foregroundStyle(Color(hex: "#38BDF8"))
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    } else if model == .deepL {
-                        VStack(alignment: .leading, spacing: 5) {
-                            HStack {
-                                SecureField("DeepL Auth Key (api-free.deepl.com veya Pro)", text: $state.deepLApiKey)
-                                    .textFieldStyle(.plain)
-                                    .font(.system(size: 10.5))
-                                    .padding(6)
-                                    .background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 5))
-
-                                Button("Kaydet & Aktif Et") {
-                                    state.selectedModel = .deepL
-                                }
-                                .font(.system(size: 10.5, weight: .semibold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
-                                .background(Color(hex: "#0A84FF"), in: RoundedRectangle(cornerRadius: 5))
-                                .buttonStyle(.plain)
-                            }
-                            if !state.deepLApiKey.isEmpty {
-                                Text("✓ DeepL Anahtarı Kaydedildi")
-                                    .font(.system(size: 9.5, weight: .medium))
-                                    .foregroundStyle(Color.green)
-                            }
-                        }
-                    }
-                }
-                .padding(11)
-                .background(state.selectedModel == model ? Color(hex: "#0A84FF").opacity(0.12) : Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(state.selectedModel == model ? Color(hex: "#0A84FF").opacity(0.4) : Color.white.opacity(0.08), lineWidth: 1))
-                .contentShape(Rectangle())
-                .onTapGesture { state.selectedModel = model }
+                modelCard(model)
             }
         }
     }
