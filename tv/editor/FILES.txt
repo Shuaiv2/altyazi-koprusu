@@ -1,0 +1,2 @@
+webos/subtitle-settings.js
+webos/subtitle-layout.js

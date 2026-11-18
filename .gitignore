@@ -41,8 +41,12 @@ tv/android/build/
 tv/android/app/build/
 dist/
 teslim/
-*.app
+**/AltyaziKoprusu.app/
+dist/
 *.apk
 *.ipk
 *.wgt
 release-win/
+
+# tv/editor/FILES.txt kaynak dosyadır (derleme betikleri okur)
+!tv/editor/FILES.txt
