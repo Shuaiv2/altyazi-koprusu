@@ -155,10 +155,20 @@ public partial class MainView : UserControl
             }
         }
 
-        ObsText.Text = $"OBS overlay: http://localhost:{controller.ServerPort}/obs";
+        ObsText.Text = $"Ayrı ekran / OBS sayfası (yalnızca altyazı, oyun görüntüsü yok): http://localhost:{controller.ServerPort}/obs";
 
         // Video Giriş Kaynağı (Remote Play / Capture Card / Desktop)
-        if (s.VideoSource == VideoSourceType.CaptureCard)
+        if (s.PcOverlayMode)
+        {
+            SourcePcOverlay.IsChecked = true;
+            SourceWindowPickerCard.Visibility = Visibility.Visible;
+            if (QuickSourcePickerCard != null) QuickSourcePickerCard.Visibility = Visibility.Visible;
+            PopulateSourceWindows();
+            ApplySourceHint(true);
+            if (StreamThumbnailTitle != null) StreamThumbnailTitle.Text = "Oyun penceresi (bu bilgisayar)";
+            if (ThumbnailStatusText != null) ThumbnailStatusText.Text = "Pencere bekleniyor";
+        }
+        else if (s.VideoSource == VideoSourceType.CaptureCard)
         {
             SourceRadioCaptureCard.IsChecked = true;
             SourceWindowPickerCard.Visibility = Visibility.Visible;
@@ -193,6 +203,7 @@ public partial class MainView : UserControl
         UpdateModelSelectionUi();
         UpdatePatchUi();
         UpdateLocalModelUi();
+        UpdateOverlayStatusUi(DesktopSubtitleOverlay.IsOverlayEnabled);
 
         loading = false;
     }
@@ -447,7 +458,8 @@ public partial class MainView : UserControl
                 {
                     try
                     {
-                        await controller.PairAsync(new LgTv("PC & OBS", "127.0.0.1", TvBrand.AndroidTv));
+                        var placeholder = controller.Settings.PcOverlayMode ? "Bu bilgisayar" : "PC & OBS";
+                        await controller.PairAsync(new LgTv(placeholder, "127.0.0.1", TvBrand.AndroidTv));
                     }
                     catch { }
                 }
@@ -666,7 +678,13 @@ public partial class MainView : UserControl
                 var target = s.DesktopWindowName;
                 GameTranslator.Core.Frame? frame = null;
 
-                if (!string.IsNullOrWhiteSpace(target) && target.StartsWith("window:", StringComparison.OrdinalIgnoreCase))
+                if (s.PcOverlayMode && !string.IsNullOrWhiteSpace(target) && !target.StartsWith("monitor:", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Okuma kutusu pencerenin istemci alanına göre olduğundan önizleme de aynı alanı gösterir.
+                    var hWnd = new WindowSourceResolver().Resolve(s.SavedSource, target);
+                    if (hWnd != IntPtr.Zero) frame = WindowCaptureService.CaptureClient(hWnd, new WindowCaptureService.ClientCaptureState());
+                }
+                else if (!string.IsNullOrWhiteSpace(target) && target.StartsWith("window:", StringComparison.OrdinalIgnoreCase))
                 {
                     var winTitle = target["window:".Length..];
                     var hWnd = WindowCaptureService.FindWindowBySubstring(winTitle);
@@ -923,10 +941,8 @@ public partial class MainView : UserControl
 
     private void OnTestSubtitle(object sender, RoutedEventArgs e) => controller.SendTestSubtitle();
 
-    private void OnDragOverlayPosition(object sender, RoutedEventArgs e)
-    {
-        DesktopSubtitleOverlay.StartDragMode();
-    }
+    private void OnDragOverlayPosition(object sender, RoutedEventArgs e) =>
+        TvLayoutEditorWindow.Show(controller, Window.GetWindow(this), overlay: true);
 
     private void OnDesktopOverlayToggle(object sender, RoutedEventArgs e)
     {
@@ -1202,6 +1218,21 @@ public partial class MainView : UserControl
         controller.ClearLastFrame();
 
         VideoSourceType newSource;
+        var pcOverlay = SourcePcOverlay.IsChecked == true;
+        ApplySourceHint(pcOverlay);
+        if (pcOverlay)
+        {
+            newSource = VideoSourceType.DesktopScreen;
+            SourceWindowPickerCard.Visibility = Visibility.Visible;
+            if (QuickSourcePickerCard != null) QuickSourcePickerCard.Visibility = Visibility.Visible;
+            if (StreamThumbnailTitle != null) StreamThumbnailTitle.Text = "Oyun penceresi (bu bilgisayar)";
+            if (ThumbnailStatusText != null) ThumbnailStatusText.Text = "Pencere bekleniyor";
+            // Önce mod açılır (okuma alanı "Alt Orta"), sonra pencere listesi doldurulup kayıtlı pencere seçilir.
+            controller.Settings = controller.Settings.WithPcOverlayMode(true);
+            PopulateSourceWindows();
+            UpdateOverlayStatusUi(DesktopSubtitleOverlay.IsOverlayEnabled);
+            return;
+        }
         if (SourceRadioCaptureCard.IsChecked == true)
         {
             newSource = VideoSourceType.CaptureCard;
@@ -1229,7 +1260,16 @@ public partial class MainView : UserControl
             if (ThumbnailStatusText != null) ThumbnailStatusText.Text = "Görüntü bekleniyor";
         }
 
-        controller.Settings = controller.Settings with { VideoSource = newSource };
+        controller.Settings = controller.Settings.WithPcOverlayMode(false) with { VideoSource = newSource };
+        UpdateOverlayStatusUi(DesktopSubtitleOverlay.IsOverlayEnabled);
+    }
+
+    private void ApplySourceHint(bool pcOverlay)
+    {
+        if (SourceWindowHint == null) return;
+        SourceWindowHint.Text = pcOverlay
+            ? "Xbox Remote Play: play.xbox.com/remoteplay sayfasını Edge ya da Chrome'da aç, F11 ile tam ekran yap, pencereyi buradan seç ve çeviriyi başlat. Altyazı oyunun üstünde görünür. Ctrl+Shift+O: altyazıyı aç/kapat, Ctrl+Shift+L: altyazı düzeni."
+            : "OBS kullanıyorsanız: OBS'te 'Tam Ekran Projektör' veya 'Pencere Projektörü' açıp listeden seçebilirsiniz.";
     }
 
     private void OnRefreshWindows(object sender, RoutedEventArgs e)
@@ -1238,6 +1278,9 @@ public partial class MainView : UserControl
     }
 
     private bool populatingSourceWindows;
+
+    private static ComboBoxItem Header(string text) => new() { Content = text, IsEnabled = false, FontWeight = FontWeights.Bold };
+
     private void PopulateSourceWindows()
     {
         if (populatingSourceWindows) return;
@@ -1249,26 +1292,34 @@ public partial class MainView : UserControl
 
             ComboBoxItem? toSelectMain = null;
             ComboBoxItem? toSelectQuick = null;
-            var currentTarget = controller.Settings.DesktopWindowName;
+            var settings = controller.Settings;
+            var currentTarget = settings.DesktopWindowName;
 
-            // 1. Açık Pencereler & OBS Projektörleri (Öncelikli Seçim!)
-            var titles = WindowCaptureService.GetTopLevelWindowTitles();
-            if (titles.Count > 0)
+            // Açık pencereler: Xbox Remote Play tarayıcı pencereleri en üstte, sonra tarayıcılar, sonra diğerleri.
+            var windows = WindowRanking.Rank(WindowCaptureService.EnumerateWindows());
+            // Kayıtlı pencere (süreç + başlık deseni) bir sonraki açılışta kendiliğinden yeniden seçilir.
+            var savedMatch = settings.SavedSource?.Find(windows);
+
+            void AddGroup(string header, IEnumerable<WindowEntry> group)
             {
-                var h1 = new ComboBoxItem { Content = "── 🪟 Açık Oyun Pencereleri & OBS ──", IsEnabled = false, FontWeight = FontWeights.Bold };
-                var h1q = new ComboBoxItem { Content = "── 🪟 Açık Oyun Pencereleri & OBS ──", IsEnabled = false, FontWeight = FontWeights.Bold };
-                SourceWindowComboBox?.Items.Add(h1);
-                QuickSourceWindowComboBox?.Items.Add(h1q);
-
-                foreach (var title in titles)
+                var list = group.ToList();
+                if (list.Count == 0) return;
+                SourceWindowComboBox?.Items.Add(Header(header));
+                QuickSourceWindowComboBox?.Items.Add(Header(header));
+                foreach (var w in list)
                 {
-                    var tag = $"window:{title}";
-                    var item1 = new ComboBoxItem { Content = $"🪟 {title}", Tag = tag };
-                    var item2 = new ComboBoxItem { Content = $"🪟 {title}", Tag = tag };
+                    var tag = $"window:{w.Title}";
+                    var label = $"{w.Title}  ·  {w.Process}";
+                    var weight = WindowRanking.IsXboxRemotePlay(w) ? FontWeights.Bold : FontWeights.Normal;
+                    var item1 = new ComboBoxItem { Content = label, Tag = tag, DataContext = w, FontWeight = weight };
+                    var item2 = new ComboBoxItem { Content = label, Tag = tag, DataContext = w, FontWeight = weight };
                     SourceWindowComboBox?.Items.Add(item1);
                     QuickSourceWindowComboBox?.Items.Add(item2);
 
-                    if (!string.IsNullOrEmpty(currentTarget) && (currentTarget == tag || currentTarget == title || title.Contains(currentTarget, StringComparison.OrdinalIgnoreCase)))
+                    var match = savedMatch is not null
+                        ? w.Handle == savedMatch.Handle
+                        : !string.IsNullOrEmpty(currentTarget) && (currentTarget == tag || currentTarget == w.Title || w.Title.Contains(currentTarget, StringComparison.OrdinalIgnoreCase));
+                    if (match && toSelectMain == null)
                     {
                         toSelectMain = item1;
                         toSelectQuick = item2;
@@ -1276,21 +1327,20 @@ public partial class MainView : UserControl
                 }
             }
 
-            // 2. Fiziksel Monitörler (Tüm Masaüstü)
-            var monitors = WindowCaptureService.GetDisplayMonitors();
-            var h2 = new ComboBoxItem { Content = "── 🖥️ Tüm Ekran / Monitörler ──", IsEnabled = false, FontWeight = FontWeights.Bold };
-            var h2q = new ComboBoxItem { Content = "── 🖥️ Tüm Ekran / Monitörler ──", IsEnabled = false, FontWeight = FontWeights.Bold };
-            SourceWindowComboBox?.Items.Add(h2);
-            QuickSourceWindowComboBox?.Items.Add(h2q);
+            AddGroup("── Xbox Remote Play / bulut oyun (önerilen) ──", windows.Where(WindowRanking.IsXboxRemotePlay));
+            AddGroup("── Tarayıcılar ──", windows.Where(w => !WindowRanking.IsXboxRemotePlay(w) && WindowRanking.IsBrowser(w.Process)));
+            AddGroup("── Diğer açık pencereler (oyun, OBS projektörü…) ──", windows.Where(w => !WindowRanking.IsBrowser(w.Process)));
 
-            foreach (var mon in monitors)
+            // Fiziksel monitörler (tüm ekran)
+            SourceWindowComboBox?.Items.Add(Header("── Tüm ekran (monitör) ──"));
+            QuickSourceWindowComboBox?.Items.Add(Header("── Tüm ekran (monitör) ──"));
+            foreach (var mon in WindowCaptureService.GetDisplayMonitors())
             {
                 var tag = $"monitor:{mon.Index}";
-                var item1 = new ComboBoxItem { Content = $"🖥️ {mon.Name} (Tüm Ekran)", Tag = tag };
-                var item2 = new ComboBoxItem { Content = $"🖥️ {mon.Name} (Tüm Ekran)", Tag = tag };
+                var item1 = new ComboBoxItem { Content = $"{mon.Name} (Tüm ekran)", Tag = tag };
+                var item2 = new ComboBoxItem { Content = $"{mon.Name} (Tüm ekran)", Tag = tag };
                 SourceWindowComboBox?.Items.Add(item1);
                 QuickSourceWindowComboBox?.Items.Add(item2);
-
                 if (currentTarget == tag)
                 {
                     toSelectMain = item1;
@@ -1298,47 +1348,19 @@ public partial class MainView : UserControl
                 }
             }
 
-            // Eğer daha önce bir hedef seçilmemişse: Açık bir pencere varsa İLK PENCEREYİ seç, yoksa monitörü seç!
-            if (toSelectMain == null)
+            // Hiçbir hedef seçilmemişse ilk pencere (sıralamada Xbox penceresi önde) seçilir.
+            if (toSelectMain == null && string.IsNullOrEmpty(currentTarget))
             {
-                if (SourceWindowComboBox != null)
-                {
-                    foreach (ComboBoxItem it in SourceWindowComboBox.Items)
-                    {
-                        if (it.IsEnabled && it.Tag != null)
-                        {
-                            toSelectMain = it;
-                            break;
-                        }
-                    }
-                }
-                if (QuickSourceWindowComboBox != null)
-                {
-                    foreach (ComboBoxItem it in QuickSourceWindowComboBox.Items)
-                    {
-                        if (it.IsEnabled && it.Tag != null)
-                        {
-                            toSelectQuick = it;
-                            break;
-                        }
-                    }
-                }
+                toSelectMain = SourceWindowComboBox?.Items.OfType<ComboBoxItem>().FirstOrDefault(it => it.IsEnabled && it.Tag != null);
+                toSelectQuick = QuickSourceWindowComboBox?.Items.OfType<ComboBoxItem>().FirstOrDefault(it => it.IsEnabled && it.Tag != null);
             }
 
-            if (SourceWindowComboBox != null && toSelectMain != null)
-            {
-                SourceWindowComboBox.SelectedItem = toSelectMain;
-            }
-            if (QuickSourceWindowComboBox != null && toSelectQuick != null)
-            {
-                QuickSourceWindowComboBox.SelectedItem = toSelectQuick;
-            }
+            if (SourceWindowComboBox != null && toSelectMain != null) SourceWindowComboBox.SelectedItem = toSelectMain;
+            if (QuickSourceWindowComboBox != null && toSelectQuick != null) QuickSourceWindowComboBox.SelectedItem = toSelectQuick;
 
-            // Eğer ayarda henüz bir hedef kayıtlı değilse, seçilen öğeyi kaydet
-            if (string.IsNullOrEmpty(currentTarget) && toSelectMain?.Tag is string defTarget)
-            {
-                controller.Settings = controller.Settings with { DesktopWindowName = defTarget };
-            }
+            // Ayarda hedef yoksa seçilen kaydedilir; kayıtlı pencere yeniden bulunduysa güncel başlığı yazılır.
+            if (toSelectMain is not null && (string.IsNullOrEmpty(currentTarget) || (savedMatch is not null && currentTarget != (string?)toSelectMain.Tag)))
+                controller.Settings = ApplyChosenSource(controller.Settings, toSelectMain);
         }
         catch { }
         finally
@@ -1347,60 +1369,57 @@ public partial class MainView : UserControl
         }
     }
 
+    /// <summary>Seçilen öğeyi ayara işler: pencerede süreç adı + başlık deseni de saklanır (sonraki açılışta aynı pencere bulunur).</summary>
+    private static UserSettings ApplyChosenSource(UserSettings settings, ComboBoxItem item)
+    {
+        var tag = (string)item.Tag;
+        if (item.DataContext is WindowEntry entry)
+        {
+            var saved = SavedWindowSource.From(entry);
+            return settings with { DesktopWindowName = tag, SourceProcess = saved.Process, SourceTitlePattern = saved.TitlePattern };
+        }
+        return settings with { DesktopWindowName = tag, SourceProcess = null, SourceTitlePattern = null };
+    }
+
     private void OnSourceWindowSelected(object sender, SelectionChangedEventArgs e)
     {
         if (loading || populatingSourceWindows) return;
-        if (SourceWindowComboBox.SelectedItem is ComboBoxItem item && item.Tag is string target && !string.IsNullOrEmpty(target))
-        {
-            controller.Settings = controller.Settings with { DesktopWindowName = target };
-            if (QuickSourceWindowComboBox != null)
-            {
-                foreach (ComboBoxItem q in QuickSourceWindowComboBox.Items)
-                {
-                    if ((q.Tag as string) == target)
-                    {
-                        QuickSourceWindowComboBox.SelectedItem = q;
-                        break;
-                    }
-                }
-            }
-
-            if (target.StartsWith("monitor:", StringComparison.OrdinalIgnoreCase) && int.TryParse(target["monitor:".Length..], out int mIndex))
-            {
-                var monitors = WindowCaptureService.GetDisplayMonitors();
-                if (monitors.FirstOrDefault(m => m.Index == mIndex) is { } mon)
-                {
-                    DesktopSubtitleOverlay.SetTargetMonitor(mon.Left, mon.Top, mon.Width, mon.Height);
-                }
-            }
-        }
+        if (SourceWindowComboBox.SelectedItem is ComboBoxItem item) ChooseSource(item, QuickSourceWindowComboBox);
     }
 
     private void OnQuickSourceWindowSelected(object sender, SelectionChangedEventArgs e)
     {
         if (loading || populatingSourceWindows) return;
-        if (QuickSourceWindowComboBox?.SelectedItem is ComboBoxItem item && item.Tag is string target && !string.IsNullOrEmpty(target))
+        if (QuickSourceWindowComboBox?.SelectedItem is ComboBoxItem item) ChooseSource(item, SourceWindowComboBox);
+    }
+
+    private void ChooseSource(ComboBoxItem item, ComboBox? other)
+    {
+        if (item.Tag is not string target || string.IsNullOrEmpty(target)) return;
+        controller.Settings = ApplyChosenSource(controller.Settings, item);
+        if (other != null)
         {
-            controller.Settings = controller.Settings with { DesktopWindowName = target };
-            if (SourceWindowComboBox != null)
+            populatingSourceWindows = true;
+            try
             {
-                foreach (ComboBoxItem m in SourceWindowComboBox.Items)
+                foreach (ComboBoxItem q in other.Items.OfType<ComboBoxItem>())
                 {
-                    if ((m.Tag as string) == target)
+                    if ((q.Tag as string) == target && (q.DataContext as WindowEntry)?.Handle == (item.DataContext as WindowEntry)?.Handle)
                     {
-                        SourceWindowComboBox.SelectedItem = m;
+                        other.SelectedItem = q;
                         break;
                     }
                 }
             }
+            finally { populatingSourceWindows = false; }
+        }
 
-            if (target.StartsWith("monitor:", StringComparison.OrdinalIgnoreCase) && int.TryParse(target["monitor:".Length..], out int mIndex))
+        if (target.StartsWith("monitor:", StringComparison.OrdinalIgnoreCase) && int.TryParse(target["monitor:".Length..], out int mIndex))
+        {
+            var monitors = WindowCaptureService.GetDisplayMonitors();
+            if (monitors.FirstOrDefault(m => m.Index == mIndex) is { } mon)
             {
-                var monitors = WindowCaptureService.GetDisplayMonitors();
-                if (monitors.FirstOrDefault(m => m.Index == mIndex) is { } mon)
-                {
-                    DesktopSubtitleOverlay.SetTargetMonitor(mon.Left, mon.Top, mon.Width, mon.Height);
-                }
+                DesktopSubtitleOverlay.SetTargetMonitor(mon.Left, mon.Top, mon.Width, mon.Height);
             }
         }
     }

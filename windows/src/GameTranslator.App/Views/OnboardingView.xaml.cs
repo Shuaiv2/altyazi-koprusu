@@ -28,7 +28,7 @@ public partial class OnboardingView : UserControl
         DataContext = controller;
         if (controller.Tv != null)
         {
-            selectedTvPlatform = controller.Tv.Brand switch
+            selectedTvPlatform = controller.Settings.PcOverlayMode ? "Overlay" : controller.Tv.Brand switch
             {
                 TvBrand.Lg => "LG",
                 TvBrand.Samsung => "Samsung",
@@ -39,7 +39,7 @@ public partial class OnboardingView : UserControl
         }
         else
         {
-            selectedTvPlatform = "PC";
+            selectedTvPlatform = controller.Settings.PcOverlayMode ? "Overlay" : "PC";
         }
         InitializeComponent();
         UpdateTvPlatformSelection();
@@ -174,8 +174,12 @@ public partial class OnboardingView : UserControl
     {
         try
         {
+            SetOverlayMode(selectedTvPlatform == "Overlay");
             switch (selectedTvPlatform)
             {
+                case "Overlay":
+                    if (controller.Tv == null) _ = controller.PairAsync(new LgTv("Bu bilgisayar", "127.0.0.1", TvBrand.AndroidTv));
+                    break;
                 case "LG":
                     var lgHost = (Typed(LgHostInput) is { Length: > 0 } typedLgHostInput ? typedLgHostInput : controller.Tv?.Host);
                     if (!string.IsNullOrWhiteSpace(lgHost))
@@ -426,6 +430,40 @@ public partial class OnboardingView : UserControl
         }
     }
 
+    /// <summary>
+    /// "Bu bilgisayarda" modunu açar ya da kapatır. Kapatırken, mod PS5 adımı atlanarak açılmışsa kaynak yeniden Remote Play olur.
+    /// </summary>
+    private void SetOverlayMode(bool enabled)
+    {
+        var current = controller.Settings;
+        if (current.PcOverlayMode == enabled) return;
+        controller.Settings = enabled
+            ? current.WithPcOverlayMode(true)
+            : current.WithPcOverlayMode(false) with { VideoSource = current.VideoSource == VideoSourceType.DesktopScreen ? VideoSourceType.RemotePlay : current.VideoSource };
+    }
+
+    private void OnSkipPs5ForXbox(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            SetOverlayMode(true);
+            // Sonraki adımların PS5 eşleşmesini beklememesi için yer tutucu kayıt (PS5 bu modda kullanılmaz).
+            if (controller.Console == null)
+            {
+                var key = new byte[16];
+                controller.SetRegisteredConsole(new RegisteredConsole("127.0.0.1", "Bu bilgisayar (oyun penceresi)", key, key));
+            }
+            if (controller.Tv == null) _ = controller.PairAsync(new LgTv("Bu bilgisayar", "127.0.0.1", TvBrand.AndroidTv));
+        }
+        catch { }
+
+        selectedTvPlatform = "Overlay";
+        UpdateTvPlatformSelection();
+        PairStatusText.Text = "✓ Bu bilgisayarda modu seçildi. Çeviri yeri adımına geçiliyor...";
+        PairStatusText.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
+        SetStep(3);
+    }
+
     private void OnSkipPs5ForCaptureCard(object sender, RoutedEventArgs e)
     {
         try
@@ -451,16 +489,31 @@ public partial class OnboardingView : UserControl
     // ==========================================
     // Adım 4: Akıllı TV Platform Seçimi & Eşleştirme
     // ==========================================
+    private async void OnSelectTvOverlay(object sender, RoutedEventArgs e)
+    {
+        selectedTvPlatform = "Overlay";
+        UpdateTvPlatformSelection();
+        try
+        {
+            SetOverlayMode(true);
+            if (controller.Tv == null) await controller.PairAsync(new LgTv("Bu bilgisayar", "127.0.0.1", TvBrand.AndroidTv));
+        }
+        catch { }
+        TvStatusFeedback.Text = "✓ Bu bilgisayarda (oyunun üstünde) modu kaydedildi.";
+        TvStatusFeedback.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
+    }
+
     private async void OnSelectTvPc(object sender, RoutedEventArgs e)
     {
         selectedTvPlatform = "PC";
         UpdateTvPlatformSelection();
         try
         {
+            SetOverlayMode(false);
             await controller.PairAsync(new LgTv("PC & OBS", "127.0.0.1", TvBrand.AndroidTv));
         }
         catch { }
-        TvStatusFeedback.Text = "✓ Bilgisayar & OBS modu kaydedildi.";
+        TvStatusFeedback.Text = "✓ Ayrı ekran / OBS modu kaydedildi.";
         TvStatusFeedback.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
     }
 
@@ -515,6 +568,9 @@ public partial class OnboardingView : UserControl
         var defBrush = new SolidColorBrush(Color.FromRgb(35, 43, 62));
 
         // Kenarlıklar
+        TvBorderOverlay.BorderBrush = selectedTvPlatform == "Overlay" ? blueBrush : defBrush;
+        TvBadgeOverlay.Visibility = selectedTvPlatform == "Overlay" ? Visibility.Visible : Visibility.Collapsed;
+        TvDetailOverlay.Visibility = selectedTvPlatform == "Overlay" ? Visibility.Visible : Visibility.Collapsed;
         TvBorderPc.BorderBrush = selectedTvPlatform == "PC" ? blueBrush : defBrush;
         TvBorderSamsung.BorderBrush = selectedTvPlatform == "Samsung" ? blueBrush : defBrush;
         TvBorderLg.BorderBrush = selectedTvPlatform == "LG" ? blueBrush : defBrush;
@@ -716,13 +772,13 @@ public partial class OnboardingView : UserControl
     // ==========================================
     private void OnTestDesktopOverlay(object sender, RoutedEventArgs e)
     {
-        DesktopSubtitleOverlay.Display("Altyazı Köprüsü: Masaüstü Ekran Altyazısı Başarıyla Çalışıyor! [HUD TESTİ]", 6000);
+        DesktopSubtitleOverlay.Notice("Altyazı Köprüsü: Masaüstü Ekran Altyazısı Başarıyla Çalışıyor! [HUD TESTİ]");
     }
 
     private void OnTestTv(object sender, RoutedEventArgs e)
     {
         controller.SendTestSubtitle();
-        DesktopSubtitleOverlay.Display("Altyazı Köprüsü: Canlı Türkçe Altyazı Testi Başarılı!", 6000);
+        DesktopSubtitleOverlay.Notice("Altyazı Köprüsü: Canlı Türkçe Altyazı Testi Başarılı!");
         MessageBox.Show("Deneme yazısı gönderildi. TV'de görünüyorsa her şey hazır.", "Gönderildi", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 }

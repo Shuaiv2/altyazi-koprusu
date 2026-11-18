@@ -22,6 +22,10 @@ public enum HotkeyAction
     PauseSubtitles,
     /// <summary>Num 9: ekranın tamamını bir kez çevir; yeniden basınca çeviriler kalkar.</summary>
     Screen,
+    /// <summary>Ctrl+Shift+O: bu bilgisayardaki altyazı katmanını göster / gizle.</summary>
+    OverlayToggle,
+    /// <summary>Ctrl+Shift+L: altyazı düzeni düzenleyicisini aç (bu bilgisayarda katman modunda katmanın düzeni).</summary>
+    LayoutEditor,
 }
 
 /// <summary>
@@ -45,6 +49,20 @@ public sealed partial class GlobalHotkeys : IDisposable
         (HotkeyAction.Snapshot, 0x68),
         (HotkeyAction.PauseSubtitles, 0x60),
         (HotkeyAction.Screen, 0x69),
+    ];
+
+    private const uint ModControl = 0x0002;
+    private const uint ModShift = 0x0004;
+    private const int ChordFirstId = FirstId + 100;
+
+    /// <summary>
+    /// Ctrl+Shift+O / Ctrl+Shift+L: "bu bilgisayarda" katman modunda oyun tarayıcıda tam ekranken de çalışmalı, bu yüzden
+    /// pencere odağından bağımsız genel kısayol. Yalnız <see cref="ChordsEnabled"/> iken tutulur (aksi hâlde tarayıcıya gider).
+    /// </summary>
+    private static readonly (HotkeyAction Action, uint VirtualKey)[] Chords =
+    [
+        (HotkeyAction.OverlayToggle, 0x4F),
+        (HotkeyAction.LayoutEditor, 0x4C),
     ];
 
     [LibraryImport("user32.dll", SetLastError = true)]
@@ -84,6 +102,33 @@ public sealed partial class GlobalHotkeys : IDisposable
         }
     }
 
+    private readonly List<int> registeredChords = [];
+    private bool chordsEnabled;
+
+    /// <summary>Ctrl+Shift+O / Ctrl+Shift+L tutuluyor mu (numpad kısayollarından bağımsız).</summary>
+    public bool ChordsEnabled
+    {
+        get => chordsEnabled;
+        set
+        {
+            if (value == chordsEnabled || source is null) return;
+            chordsEnabled = value;
+            if (value)
+            {
+                for (var index = 0; index < Chords.Length; index++)
+                {
+                    var id = ChordFirstId + index;
+                    if (RegisterHotKey(window, id, ModControl | ModShift | ModNoRepeat, Chords[index].VirtualKey)) registeredChords.Add(id);
+                }
+            }
+            else
+            {
+                foreach (var id in registeredChords) UnregisterHotKey(window, id);
+                registeredChords.Clear();
+            }
+        }
+    }
+
     private void Register()
     {
         for (var index = 0; index < Keys.Length; index++)
@@ -103,6 +148,12 @@ public sealed partial class GlobalHotkeys : IDisposable
     {
         if (message != WmHotkey) return IntPtr.Zero;
         var id = wParam.ToInt32();
+        if (registeredChords.Contains(id))
+        {
+            handled = true;
+            pressed(Chords[id - ChordFirstId].Action);
+            return IntPtr.Zero;
+        }
         if (!registered.Contains(id)) return IntPtr.Zero;
         handled = true;
         pressed(Keys[id - FirstId].Action);
@@ -114,5 +165,6 @@ public sealed partial class GlobalHotkeys : IDisposable
         source?.RemoveHook(Hook);
         Unregister();
         enabled = false;
+        ChordsEnabled = false;
     }
 }

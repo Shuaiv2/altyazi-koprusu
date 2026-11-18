@@ -18,7 +18,7 @@ public interface ITvLayoutPort
 /// (aradaki en son önizleme zamanlayıcıyla gönderilir), kaydetmeden kapanırsa TV'ye "cancel" gider.
 /// WebView2'ye bağımlı değil: iletiyi alır, sayfada çalıştırılacak betikleri döndürür.
 /// </summary>
-public sealed class TvLayoutEditorBridge(ITvLayoutPort port, Func<long> clockMs, Func<int, Action, IDisposable> schedule)
+public sealed class TvLayoutEditorBridge(ITvLayoutPort port, Func<long> clockMs, Func<int, Action, IDisposable> schedule, string? connectedLabel = null)
 {
     /// <summary>Önizlemeler arasındaki en küçük süre (10/sn).</summary>
     public const int PreviewIntervalMs = 100;
@@ -43,7 +43,11 @@ public sealed class TvLayoutEditorBridge(ITvLayoutPort port, Func<long> clockMs,
     public string StatusScript()
     {
         var at = port.LastTvLayout?.At is { } time ? JsonSerializer.Serialize(time.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")) : "null";
-        return $"window.__editorStatus && window.__editorStatus({Bool(port.TvConnected)}, {at})";
+        var script = $"window.__editorStatus && window.__editorStatus({Bool(port.TvConnected)}, {at})";
+        // Bu bilgisayardaki katman düzenlenirken sayfanın "TV bağlı" yazısı yerine kendi durumumuz yazılır.
+        if (connectedLabel is not null)
+            script += $";(function(){{var a=document.querySelector('#status .ok');if(a)a.textContent={JsonSerializer.Serialize(connectedLabel)};}})()";
+        return script;
     }
 
     private static string Bool(bool value) => value ? "true" : "false";

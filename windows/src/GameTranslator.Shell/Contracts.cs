@@ -89,6 +89,41 @@ public sealed record UserSettings
     public string? DesktopWindowName { get; init; }
     public int ScreenIndex { get; init; } = 0;
 
+    /// <summary>
+    /// "Bu bilgisayarda (tam ekran oyunun üstünde)": Türkçe altyazı, seçilen pencerenin bulunduğu monitörde oyunun üstüne
+    /// çizilir (TV gerekmez). Görüntü kaynağı <see cref="VideoSourceType.DesktopScreen"/> olur. Kapalıyken eski davranış
+    /// (TV / ayrı ekran) sürer.
+    /// </summary>
+    public bool PcOverlayMode { get; init; }
+    /// <summary>Seçilen pencerenin süreç adı (ör. msedge); sonraki açılışta aynı pencere bununla bulunur.</summary>
+    public string? SourceProcess { get; init; }
+    /// <summary>Seçilen pencerenin başlık deseni (ör. "Xbox"); oyun adı başlıkta değişse de pencere bulunur.</summary>
+    public string? SourceTitlePattern { get; init; }
+
+    /// <summary>Kayıtlı pencere kaynağı (süreç + başlık deseni); seçilmediyse null.</summary>
+    [JsonIgnore]
+    public SavedWindowSource? SavedSource =>
+        string.IsNullOrWhiteSpace(SourceProcess) ? null : new SavedWindowSource(SourceProcess, SourceTitlePattern ?? "");
+
+    /// <summary>"Alt Orta" okuma alanı (Okuma Alanı sekmesindeki hazır şablonla aynı).</summary>
+    public static readonly CropRegion BottomCenterRegion = new(Top: 0.72, Bottom: 0.85, Left: 0.16, Right: 0.84);
+
+    /// <summary>
+    /// Bu bilgisayarda katman modunu açar/kapatır. Açılınca kaynak masaüstü/pencere olur; okuma alanı henüz bu mod için
+    /// seçilmediyse "Alt Orta" gelir (kutu seçilen pencerenin istemci alanına göredir).
+    /// </summary>
+    public UserSettings WithPcOverlayMode(bool enabled)
+    {
+        if (!enabled) return this with { PcOverlayMode = false };
+        return this with
+        {
+            PcOverlayMode = true,
+            VideoSource = VideoSourceType.DesktopScreen,
+            AutoRegion = false,
+            Region = PcOverlayMode ? Region : BottomCenterRegion,
+        };
+    }
+
     /// <summary>Ek bölgenin sayısı; <see cref="ExtraRegion"/> 1..ExtraRegionCount arasında çalışır.</summary>
     public const int ExtraRegionCount = 3;
 

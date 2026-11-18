@@ -2,6 +2,7 @@
 
 using GameTranslator.Core;
 using GameTranslator.RemotePlay;
+using GameTranslator.Shell;
 
 namespace GameTranslator.App.Services;
 
@@ -19,6 +20,10 @@ public sealed class DesktopCaptureStreamSession : IStreamSession
 
     private readonly string? targetWindowTitle;
     private readonly int screenIndex;
+    private readonly SavedWindowSource? savedSource;
+    private readonly bool clientArea;
+    private readonly WindowSourceResolver resolver = new();
+    private readonly WindowCaptureService.ClientCaptureState captureState = new();
     private CancellationTokenSource? cts;
     private Task? loopTask;
     private bool running;
@@ -29,10 +34,14 @@ public sealed class DesktopCaptureStreamSession : IStreamSession
     [System.Runtime.InteropServices.DllImport("winmm.dll", EntryPoint = "timeEndPeriod")]
     private static extern uint TimeEndPeriod(uint uMilliseconds);
 
-    public DesktopCaptureStreamSession(string? targetWindowTitle = null, int screenIndex = 0)
+    /// <param name="savedSource">Kayıtlı süreç + başlık deseni ("Bu bilgisayarda" modu); pencere yeniden açılsa da bulunur.</param>
+    /// <param name="clientArea">true: pencerenin yalnız istemci alanı yakalanır (okuma kutusu ona göredir).</param>
+    public DesktopCaptureStreamSession(string? targetWindowTitle = null, int screenIndex = 0, SavedWindowSource? savedSource = null, bool clientArea = false)
     {
         this.targetWindowTitle = targetWindowTitle;
         this.screenIndex = screenIndex;
+        this.savedSource = savedSource;
+        this.clientArea = clientArea;
     }
 
     public void Start()
@@ -71,6 +80,12 @@ public sealed class DesktopCaptureStreamSession : IStreamSession
                             }
                         }
                     }
+                    // 1b. "Bu bilgisayarda" modu: seçilen pencerenin istemci alanı (PrintWindow, siyahsa ekran BitBlt)
+                    else if (clientArea && (savedSource is not null || !string.IsNullOrWhiteSpace(targetWindowTitle)))
+                    {
+                        var hWnd = resolver.Resolve(savedSource, targetWindowTitle);
+                        if (hWnd != IntPtr.Zero) frame = WindowCaptureService.CaptureClient(hWnd, captureState);
+                    }
                     // 2. Özel bir pencere seçilmişse (SADECE o pencere yakalanır, asla tüm ekrana taşmaz)
                     else if (!string.IsNullOrWhiteSpace(targetWindowTitle))
                     {
@@ -104,7 +119,7 @@ public sealed class DesktopCaptureStreamSession : IStreamSession
 
                 try
                 {
-                    await Task.Delay(16, token); // ~60 FPS akıcı ve gecikmesiz canlı yayın (OBS berraklığında)
+                    await Task.Delay(clientArea ? 50 : 16, token); // pencere modunda ~20 kare/sn yeter (altyazı OCR'ı); masaüstünde ~60
                 }
                 catch (OperationCanceledException)
                 {

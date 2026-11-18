@@ -82,7 +82,7 @@
                                     </StackPanel>
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                         <Button x:Name="TvLayoutButton" Content="Altyazı Düzeni" Style="{StaticResource PillButton}" Margin="0,0,6,0" Click="OnTvLayoutEditor"
-                                                ToolTip="TV'deki altyazının yerini ve boyutunu uzaktan ayarla (Ctrl+Shift+L)" />
+                                                ToolTip="Altyazının yerini ve boyutunu ayarla: TV'de, 'Bu bilgisayarda' modunda oyunun üstündeki katmanda (Ctrl+Shift+L)" />
                                         <Button x:Name="TvActionButton" Content="Ayarla" Style="{StaticResource PillButton}" Click="OnTvActionButton" />
                                     </StackPanel>
                                 </Grid>
@@ -97,7 +97,7 @@
                                         <TextBlock Text="{x:Static c:Glyphs.Captions}" Style="{StaticResource GlyphText}" FontSize="15" HorizontalAlignment="Center" Foreground="White" />
                                     </Border>
                                     <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="11,0,8,0" VerticalAlignment="Center">
-                                        <TextBlock Text="PC ekranında altyazı" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" />
+                                        <TextBlock Text="Bu bilgisayarda altyazı (Ctrl+Shift+O)" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" />
                                         <Ellipse x:Name="OverlayStatusDot" Width="7" Height="7" Fill="{DynamicResource idleBrush}" Margin="8,1,0,0" VerticalAlignment="Center" />
                                     </StackPanel>
                                     <Button x:Name="OverlayToggleButton" Grid.Column="2" Content="Kapalı" Style="{StaticResource PillButton}" VerticalAlignment="Center" Click="OnToggleOverlayButton" />
@@ -513,7 +513,7 @@
                             </Border>
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
                                 <Button Content="Ekrana &amp; TV'ye Test Gönder" Click="OnTestSubtitle" Style="{StaticResource TintButton}" Margin="0,0,8,0" />
-                                <Button Content="Altyazıyı Konumlandır" Click="OnDragOverlayPosition" Style="{StaticResource SecondaryButton}" ToolTip="3 monitörlü veya özel kurulumlarda altyazıyı istediğiniz ekrana sürükleyin" />
+                                <Button Content="Altyazıyı Konumlandır" Click="OnDragOverlayPosition" Style="{StaticResource SecondaryButton}" ToolTip="Altyazının yerini, boyutunu ve renklerini TV ile aynı düzenleyiciyle ayarla (Ctrl+Shift+L)" />
                             </StackPanel>
 
                             <!-- CANLI TV ÖNİZLEME (16:9 Ekran Çerçevesi) -->
@@ -708,6 +708,9 @@
 
                                     <TextBlock Text="Oyun görüntüsünün nereden okunacağını seçin. Capture Card veya OBS kullanıyorsanız PS5 Remote Play'e gerek kalmaz." FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,0,0,10" TextWrapping="Wrap" />
 
+                                    <!-- Bu bilgisayarda: oyun tarayıcıda (ör. Xbox Remote Play) ya da PC'de; altyazı oyunun üstüne çizilir, TV gerekmez -->
+                                    <RadioButton x:Name="SourcePcOverlay" Content="Bu bilgisayarda (tam ekran oyunun üstünde)" GroupName="VideoSourceGroup" Checked="OnVideoSourceChanged" Foreground="White" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,0,2" Cursor="Hand" />
+                                    <TextBlock Text="Xbox Remote Play / tarayıcı veya bilgisayar oyunları için — TV gerekmez" FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" Margin="22,0,0,10" TextWrapping="Wrap" />
                                     <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                         <RadioButton x:Name="SourceRadioRemotePlay" Content="PS5 Remote Play" GroupName="VideoSourceGroup" Checked="OnVideoSourceChanged" IsChecked="True" Foreground="White" FontSize="13" VerticalAlignment="Center" Margin="0,0,14,0" Cursor="Hand" />
                                         <RadioButton x:Name="SourceRadioCaptureCard" Content="Yakalama Kartı" GroupName="VideoSourceGroup" Checked="OnVideoSourceChanged" Foreground="White" FontSize="13" VerticalAlignment="Center" Margin="0,0,14,0" Cursor="Hand" />
@@ -724,7 +727,7 @@
                                             <ComboBox x:Name="SourceWindowComboBox" SelectionChanged="OnSourceWindowSelected" MinHeight="30" FontSize="13">
                                                 <ComboBoxItem Content="Tüm Masaüstü / Ana Ekran" Tag="" IsSelected="True" />
                                             </ComboBox>
-                                            <TextBlock Text="OBS kullanıyorsanız: OBS'te 'Tam Ekran Projektör' veya 'Pencere Projektörü' açıp listeden seçebilirsiniz." FontSize="12" Foreground="#64748B" Margin="0,6,0,0" TextWrapping="Wrap" />
+                                            <TextBlock x:Name="SourceWindowHint" Text="OBS kullanıyorsanız: OBS'te 'Tam Ekran Projektör' veya 'Pencere Projektörü' açıp listeden seçebilirsiniz." FontSize="12" Foreground="#64748B" Margin="0,6,0,0" TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Border>
                                 </StackPanel>
@@ -770,7 +773,7 @@
                                         </Border>
                                     </Grid>
                                     <Grid>
-                                        <TextBlock x:Name="ObsText" Text="OBS overlay: http://localhost:8787/obs" FontSize="13" FontFamily="Consolas" Foreground="{DynamicResource textSecondaryBrush}" VerticalAlignment="Center" />
+                                        <TextBlock x:Name="ObsText" Text="Ayrı ekran / OBS sayfası (yalnızca altyazı, oyun görüntüsü yok): http://localhost:8787/obs" FontSize="13" FontFamily="Consolas" Foreground="{DynamicResource textSecondaryBrush}" VerticalAlignment="Center" />
                     <Button Content="Kopyala" HorizontalAlignment="Right" Click="OnCopyObs" Style="{StaticResource PillButton}" />
                                     </Grid>
                                 </StackPanel>

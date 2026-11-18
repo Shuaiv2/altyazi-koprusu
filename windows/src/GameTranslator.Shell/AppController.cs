@@ -266,7 +266,8 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable, ITvLayo
                 if (isRunning) MakePipeline();
             }
             if (old.SubtitleOnly != value.SubtitleOnly && pipeline is { } live) live.SubtitleOnly = value.SubtitleOnly;
-            if (isRunning && (old.VideoSource != value.VideoSource || old.DesktopWindowName != value.DesktopWindowName || old.ScreenIndex != value.ScreenIndex))
+            if (isRunning && (old.VideoSource != value.VideoSource || old.DesktopWindowName != value.DesktopWindowName || old.ScreenIndex != value.ScreenIndex
+                              || old.PcOverlayMode != value.PcOverlayMode || old.SourceProcess != value.SourceProcess || old.SourceTitlePattern != value.SourceTitlePattern))
             {
                 RestartStream();
             }

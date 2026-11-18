@@ -13,6 +13,8 @@
     <Description>Altyazı Köprüsü — PS5 oyun altyazılarını Türkçeye çevirip TV'ye gönderir. GameTranslator (AGPL-3.0) tabanlıdır.</Description>
     <RootNamespace>GameTranslator.App</RootNamespace>
     <ApplicationIcon>Assets\AltyaziKoprusu.ico</ApplicationIcon>
+    <!-- Per-monitor DPI V2: çok monitörde katman ve ekran yakalama gerçek piksel koordinatlarıyla çalışır. -->
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <Version>1.5.3</Version>

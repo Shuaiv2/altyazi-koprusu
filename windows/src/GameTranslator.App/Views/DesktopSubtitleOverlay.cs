@@ -3,21 +3,25 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using GameTranslator.Core;
+using GameTranslator.Shell;
 
 namespace GameTranslator.App.Views;
 
 /// <summary>
-/// Bilgisayar ekranında oyunun tam üstünde şeffaf, tıklama geçiren (click-through)
-/// ve odağı çalmayan canlı Türkçe altyazı katmanı (Desktop HUD Overlay).
-/// MORT (Monkeyhead's OCR Realtime Translator) gibi çalışır:
-/// OBS Elgato'dan temiz oyun görüntüsü kaydederken, oyuncu monitöründe canlı Türkçe altyazı okur.
-/// 3 monitörlü yayıncı kurulumlarında istenen ekrana serbestçe sürüklenebilir.
+/// Bilgisayar ekranında oyunun (ör. tam ekran tarayıcıda Xbox Remote Play) tam üstünde şeffaf, tıklama geçiren ve odağı
+/// çalmayan canlı Türkçe altyazı katmanı. Pencere seçilen oyunun bulunduğu monitörü tamamen kaplar; altyazı kutusu TV ile
+/// AYNI ayar modeliyle (x, y, genişlik, yazı boyu, kenar boşluğu, renkler, arka plan, kontur, hizalama, kalın; 1920 genişlikli
+/// "sayfa pikseli") yerleştirilir ve monitöre ölçeklenir. Yerleşim hesabı <see cref="OverlayLayoutMath"/>'tedir
+/// (tv/webos/subtitle-settings.js computeRect'in C# karşılığı). Pencere ekran yakalamadan gizlenir
+/// (WDA_EXCLUDEFROMCAPTURE): OCR kendi çevirimizi asla okumaz.
+///
+/// Neden WebView2 değil de WPF: şeffaf (AllowsTransparency) pencerede alt pencere (HWND) çizen WebView2 güvenilir değil
+/// (hava boşluğu sorunu); gerçek Windows'ta denemeden riske girilmedi. Kutu/yazı tek bir WPF öğesi olduğundan hesap aynı kalır.
 /// </summary>
 public sealed class DesktopSubtitleOverlay : Window
 {
@@ -27,6 +31,8 @@ public sealed class DesktopSubtitleOverlay : Window
     private const int WS_EX_NOACTIVATE = 0x08000000;
     private const int WS_EX_TOOLWINDOW = 0x00000080;
     private const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+    private const uint SWP_NOACTIVATE = 0x0010;
+    private static readonly IntPtr HWND_TOPMOST = new(-1);
 
     [DllImport("user32.dll")]
     private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
@@ -37,21 +43,42 @@ public sealed class DesktopSubtitleOverlay : Window
     [DllImport("user32.dll")]
     private static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
 
-    private static DesktopSubtitleOverlay? _instance;
-    private static bool _enabled = false; // Varsayılan olarak kapalı (kullanıcı isterse açar)
-    private static double? _customLeft;
-    private static double? _customTop;
-    private static Rect? _targetMonitorRect;
-    private static bool _isPositioningMode;
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint flags);
 
-    public static void SetTargetMonitor(int left, int top, int width, int height)
+    /// <summary>Düzen düzenleyicisinde gösterilen örnek yazı.</summary>
+    public const string SampleText = "Örnek altyazı: Çağla, ışığı gördüğünde şaşırdı.\nİstanbul'da güneş doğarken öğle yemeğini düşündü.";
+
+    private static DesktopSubtitleOverlay? _instance;
+    private static bool _enabled; // PC modu açılınca ya da kullanıcı isteyince açılır
+    private static ScreenRect? _monitor;
+    private static OverlayLayoutSettings? _layout;
+    private static string? _lastText;
+
+    /// <summary>Düzenin saklandığı dosya (%LOCALAPPDATA%\AltyaziKoprusu\overlay-layout.json).</summary>
+    public static OverlayLayoutStore Store { get; set; } = new(OverlayLayoutStore.DefaultPath());
+
+    /// <summary>Kayıtlı düzen (önizleme sırasında önizlenen düzen).</summary>
+    public static OverlayLayoutSettings Layout => _layout ??= Store.Current;
+
+    private static ScreenRect CurrentMonitor => _monitor ?? PrimaryMonitor();
+
+    private static ScreenRect PrimaryMonitor()
     {
-        _targetMonitorRect = new Rect(left, top, width, height);
+        var monitors = Services.WindowCaptureService.GetDisplayMonitors();
+        var primary = monitors.FirstOrDefault(m => m.IsPrimary) ?? monitors.First();
+        return new ScreenRect(primary.Left, primary.Top, primary.Width, primary.Height);
     }
 
-    private readonly TextBlock _subtitleText;
-    private readonly Border _container;
-    private readonly DispatcherTimer _timer;
+    /// <summary>Katmanın kaplayacağı monitör (sanal masaüstü pikseli). Aynı değerse bir şey yapılmaz.</summary>
+    public static void SetTargetMonitor(int left, int top, int width, int height)
+    {
+        var rect = new ScreenRect(left, top, width, height);
+        if (_monitor == rect) return;
+        _monitor = rect;
+        if (Application.Current == null) return;
+        Application.Current.Dispatcher.BeginInvoke(() => _instance?.ApplyMonitor());
+    }
 
     public static bool IsOverlayEnabled
     {
@@ -66,55 +93,66 @@ public sealed class DesktopSubtitleOverlay : Window
     public static void Initialize()
     {
         if (Application.Current == null) return;
-        Application.Current.Dispatcher.Invoke(() =>
-        {
-            if (_instance == null)
-            {
-                _instance = new DesktopSubtitleOverlay();
-            }
-        });
+        Application.Current.Dispatcher.Invoke(() => _instance ??= new DesktopSubtitleOverlay());
     }
 
+    /// <summary>Çeviriyi katmanda gösterir. <paramref name="style"/> ve <paramref name="box"/> yalnız eski çağrılar içindir; yerleşim düzen dosyasından gelir.</summary>
     public static void Display(string text, int durationMs = 4500, SubtitleStyle? style = null, GameTranslator.Core.TextBox? box = null)
     {
         if (!_enabled || string.IsNullOrWhiteSpace(text)) return;
-
         if (Application.Current == null) return;
         Application.Current.Dispatcher.BeginInvoke(() =>
         {
             try
             {
-                if (_instance == null)
-                {
-                    _instance = new DesktopSubtitleOverlay();
-                }
-                _instance.ShowText(text, durationMs, style, box);
+                _instance ??= new DesktopSubtitleOverlay();
+                _lastText = text;
+                _instance.ShowText(text, durationMs);
             }
             catch { }
         });
     }
 
-    public static void StartDragMode()
+    /// <summary>Kısayolla (Ctrl+Shift+O) göster/gizle; yeni durumu döner. Açılırken kısa bir bilgi yazısı gösterilir.</summary>
+    public static bool Toggle()
     {
-        if (Application.Current == null) return;
-        Application.Current.Dispatcher.Invoke(() =>
+        IsOverlayEnabled = !_enabled;
+        Notice(_enabled ? "Altyazı Köprüsü: altyazı katmanı açık (Ctrl+Shift+O ile kapat)" : "");
+        return _enabled;
+    }
+
+    /// <summary>Kısa bir bilgi yazısı (katman kapalı olsa bile).</summary>
+    public static void Notice(string text)
+    {
+        if (string.IsNullOrEmpty(text) || Application.Current == null) return;
+        Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            if (_instance == null)
+            try
             {
-                _instance = new DesktopSubtitleOverlay();
+                _instance ??= new DesktopSubtitleOverlay();
+                _instance.ShowText(text, 2500);
             }
-            _instance.EnableDragMode();
+            catch { }
         });
     }
 
-    public static void ResetPosition()
+    /// <summary>
+    /// Düzenleyiciden gelen önizleme/kayıt: düzen canlı uygulanır, katman açıksa örnek yazı gösterilir. null: vazgeçildi,
+    /// kayıtlı düzene dönülür.
+    /// </summary>
+    public static void SetLayout(OverlayLayoutSettings? layout)
     {
-        _customLeft = null;
-        _customTop = null;
         if (Application.Current == null) return;
-        Application.Current.Dispatcher.Invoke(() =>
+        Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            _instance?.UpdatePosition();
+            try
+            {
+                _layout = layout ?? Store.Current;
+                _instance ??= new DesktopSubtitleOverlay();
+                if (layout is not null && _enabled) _instance.ShowText(_lastText ?? SampleText, 6000);
+                else if (_instance.Visibility == Visibility.Visible) _instance.Render();
+            }
+            catch { }
         });
     }
 
@@ -123,13 +161,18 @@ public sealed class DesktopSubtitleOverlay : Window
         if (Application.Current == null) return;
         Application.Current.Dispatcher.BeginInvoke(() =>
         {
-            try
-            {
-                _instance?.HideText();
-            }
+            try { _instance?.HideText(); }
             catch { }
         });
     }
+
+    private readonly Canvas _page = new() { ClipToBounds = false };
+    private readonly Border _box = new();
+    private readonly Border _textBg = new() { CornerRadius = new CornerRadius(10), Padding = new Thickness(26, 10, 26, 10) };
+    private readonly TextBlock _text = new() { TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Segoe UI") };
+    private readonly DispatcherTimer _timer = new();
+    private string _shown = "";
+    private bool _rendering;
 
     private DesktopSubtitleOverlay()
     {
@@ -141,171 +184,70 @@ public sealed class DesktopSubtitleOverlay : Window
         ShowInTaskbar = false;
         ShowActivated = false;
         Focusable = false;
-        SizeToContent = SizeToContent.WidthAndHeight;
+        IsHitTestVisible = false;
+        Left = 0;
+        Top = 0;
+        Width = 800;
+        Height = 450;
 
-        var work = SystemParameters.WorkArea;
-        MaxWidth = Math.Max(1200, work.Width * 0.85);
-
-        _subtitleText = new TextBlock
-        {
-            Foreground = Brushes.White,
-            FontSize = 28,
-            FontWeight = FontWeights.Bold,
-            TextAlignment = TextAlignment.Center,
-            TextWrapping = TextWrapping.Wrap,
-            LineHeight = 36,
-            Effect = new DropShadowEffect
-            {
-                Color = Colors.Black,
-                Direction = 315,
-                ShadowDepth = 2.5,
-                BlurRadius = 8,
-                Opacity = 0.98
-            }
-        };
-
-        _container = new Border
-        {
-            Background = new SolidColorBrush(Color.FromArgb(0xDC, 0x0A, 0x0E, 0x17)),
-            CornerRadius = new CornerRadius(12),
-            BorderBrush = new SolidColorBrush(Color.FromArgb(0x70, 0x38, 0x75, 0xE8)),
-            BorderThickness = new Thickness(1.5),
-            Padding = new Thickness(24, 12, 24, 14),
-            Child = _subtitleText
-        };
-
-        Content = _container;
+        _textBg.Child = _text;
+        _box.Child = _textBg;
+        _page.Children.Add(_box);
+        Content = new Grid { Background = Brushes.Transparent, Children = { _page } };
         Visibility = Visibility.Collapsed;
 
-        _timer = new DispatcherTimer();
-        _timer.Tick += (_, _) =>
-        {
-            if (!_isPositioningMode) HideText();
-        };
+        _timer.Tick += (_, _) => HideText();
 
-        MouseDown += OnWindowMouseDown;
-
-        SourceInitialized += (_, _) =>
-        {
-            ApplyClickThrough(true);
-        };
+        SourceInitialized += (_, _) => ApplyStyles();
+        DpiChanged += (_, _) => Dispatcher.BeginInvoke(ApplyMonitor, DispatcherPriority.Background);
+        SizeChanged += (_, _) => { if (Visibility == Visibility.Visible) Render(); };
+        // Tutamak şimdi oluşsun ki izin/konum ilk gösterimden önce uygulanabilsin.
+        new WindowInteropHelper(this).EnsureHandle();
+        ApplyMonitor();
     }
 
-    private void ApplyClickThrough(bool clickThrough)
+    /// <summary>Tıklama geçirme, odak almama, görev çubuğunda görünmeme ve yakalamadan gizlenme.</summary>
+    private void ApplyStyles()
     {
         try
         {
             var hwnd = new WindowInteropHelper(this).Handle;
             if (hwnd == IntPtr.Zero) return;
-
-            // Ekran kaydından (OBS, BitBlt, Windows Graphics Capture) gizle - MORT gibi çalışır
+            // Ekran kaydından (OBS, BitBlt, Windows Graphics Capture) gizle: OCR kendi altyazımızı okumaz.
             SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
-
             var style = GetWindowLong(hwnd, GWL_EXSTYLE);
-            if (clickThrough)
-            {
-                SetWindowLong(hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
-            }
-            else
-            {
-                SetWindowLong(hwnd, GWL_EXSTYLE, (style & ~WS_EX_TRANSPARENT) | WS_EX_LAYERED | WS_EX_TOOLWINDOW);
-            }
+            SetWindowLong(hwnd, GWL_EXSTYLE, style | WS_EX_TRANSPARENT | WS_EX_LAYERED | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW);
         }
         catch { }
     }
 
-    private void EnableDragMode()
+    /// <summary>Pencereyi monitörün tam piksel dikdörtgenine oturtur (DPI'dan bağımsız, Win32 pikseliyle).</summary>
+    private void ApplyMonitor()
     {
-        _isPositioningMode = true;
-        _timer.Stop();
-        ApplyClickThrough(false);
-
-        Cursor = Cursors.SizeAll;
-        _container.BorderBrush = new SolidColorBrush(Color.FromRgb(0x38, 0xBD, 0xF8)); // Parlak Neon Mavi
-        _container.BorderThickness = new Thickness(2.5);
-        _subtitleText.Foreground = new SolidColorBrush(Color.FromRgb(0x38, 0xBD, 0xF8));
-        _subtitleText.Text = "📍 Altyazı Köprüsü: Altyazıyı istediğiniz ekrana/yere sürükleyin\n(Sabitlemek için buraya çift tıklayın)";
-
-        UpdatePosition();
-        Visibility = Visibility.Visible;
-    }
-
-    private void DisableDragMode()
-    {
-        if (!_isPositioningMode) return;
-        _isPositioningMode = false;
-
-        _customLeft = Left;
-        _customTop = Top;
-
-        Cursor = Cursors.Arrow;
-        _container.BorderBrush = new SolidColorBrush(Color.FromArgb(0x70, 0x38, 0x75, 0xE8));
-        _container.BorderThickness = new Thickness(1.5);
-        _subtitleText.Foreground = Brushes.White;
-
-        ApplyClickThrough(true);
-        HideText();
-    }
-
-    private void OnWindowMouseDown(object sender, MouseButtonEventArgs e)
-    {
-        if (!_isPositioningMode) return;
-
-        if (e.ClickCount == 2)
+        try
         {
-            DisableDragMode();
-            return;
+            var hwnd = new WindowInteropHelper(this).Handle;
+            if (hwnd == IntPtr.Zero) return;
+            var m = OverlayLayoutMath.OverlayRect(CurrentMonitor);
+            SetWindowPos(hwnd, HWND_TOPMOST, m.Left, m.Top, m.Width, m.Height, SWP_NOACTIVATE);
+            if (Visibility == Visibility.Visible) Render();
         }
-
-        if (e.ChangedButton == MouseButton.Left)
-        {
-            try
-            {
-                DragMove();
-                _customLeft = Left;
-                _customTop = Top;
-            }
-            catch { }
-        }
+        catch { }
     }
 
-    private void ShowText(string text, int durationMs, SubtitleStyle? style, GameTranslator.Core.TextBox? box)
+    private void ShowText(string text, int durationMs)
     {
-        if (_isPositioningMode) return;
-
-        ApplyStyle(style);
-        _subtitleText.Text = text;
-
-        UpdatePosition(style, box);
-
+        _shown = text;
+        ApplyStyles();
+        Render();
         if (Visibility != Visibility.Visible)
         {
             Visibility = Visibility.Visible;
+            ApplyMonitor();
         }
-
         _timer.Stop();
         _timer.Interval = TimeSpan.FromMilliseconds(Math.Max(2500, durationMs));
         _timer.Start();
-    }
-
-    private void ApplyStyle(SubtitleStyle? style)
-    {
-        if (style == null) return;
-
-        // Yazı rengi
-        var color = style.TextColor == SubtitleTextColor.Yellow ? Color.FromRgb(0xFF, 0xE6, 0x00) : Colors.White;
-        _subtitleText.Foreground = new SolidColorBrush(color);
-
-        // Yazı boyutu: 46px standart TV fontunu PC monitörü için ~28px'e oranlar
-        double targetSize = Math.Clamp(style.FontSize * 0.62, 20, 52);
-        _subtitleText.FontSize = targetSize;
-        _subtitleText.LineHeight = targetSize * 1.3;
-        _subtitleText.FontWeight = style.Bold ? FontWeights.Bold : FontWeights.SemiBold;
-
-        // Arka plan opaklığı (Cover seçildiyse İngilizce altyazıyı tamamen örtmek için en az %90 opaklık)
-        int minAlpha = style.Placement == SubtitlePlacement.Cover ? 230 : 40;
-        byte alpha = (byte)Math.Clamp(Math.Max(minAlpha, (style.Background * 255) / 100), 40, 255);
-        _container.Background = new SolidColorBrush(Color.FromArgb(alpha, 0x0A, 0x0E, 0x17));
     }
 
     private void HideText()
@@ -314,57 +256,62 @@ public sealed class DesktopSubtitleOverlay : Window
         Visibility = Visibility.Collapsed;
     }
 
-    private void UpdatePosition(SubtitleStyle? style = null, GameTranslator.Core.TextBox? box = null)
+    /// <summary>Kutuyu ve yazıyı düzene göre yerleştirir (GT_SUBLAYOUT.apply'ın karşılığı).</summary>
+    private void Render()
     {
-        Measure(new Size(MaxWidth, double.PositiveInfinity));
-        var desiredWidth = Math.Max(ActualWidth, DesiredSize.Width);
-        var desiredHeight = Math.Max(ActualHeight, DesiredSize.Height);
-
-        if (_customLeft.HasValue && _customTop.HasValue)
+        if (_rendering) return;
+        _rendering = true;
+        try
         {
-            Left = _customLeft.Value;
-            Top = _customTop.Value;
-            return;
+            var s = Layout.Sanitized();
+            var widthDip = ActualWidth > 0 ? ActualWidth : Width;
+            var heightDip = ActualHeight > 0 ? ActualHeight : Height;
+            var scale = OverlayLayoutMath.Scale(widthDip); // DIP -> sayfa pikseli oranı (sayfa 1920 geniş)
+            var vw = OverlayLayoutSettings.PageWidth;
+            var vh = OverlayLayoutMath.PageHeight(widthDip, heightDip);
+            _page.Width = vw;
+            _page.Height = vh;
+            _page.RenderTransform = new ScaleTransform(scale, scale);
+
+            var (a, r, g, b) = OverlayLayoutSettings.Argb(s.TextColor, 100);
+            _text.Foreground = new SolidColorBrush(Color.FromArgb(a, r, g, b));
+            var (ba, br, bg, bb) = OverlayLayoutSettings.Argb(s.BgColor, s.BgOpacity);
+            _textBg.Background = new SolidColorBrush(Color.FromArgb(ba, br, bg, bb));
+            _text.FontWeight = s.Bold ? FontWeights.Bold : FontWeights.SemiBold;
+            _text.TextAlignment = s.Align switch { "left" => TextAlignment.Left, "right" => TextAlignment.Right, _ => TextAlignment.Center };
+            _textBg.HorizontalAlignment = s.Align switch { "left" => HorizontalAlignment.Left, "right" => HorizontalAlignment.Right, _ => HorizontalAlignment.Center };
+            _text.Effect = OutlineEffect(s.Outline);
+            _text.Text = _shown;
+
+            var margin = Math.Min(s.Margin, Math.Floor(vw / 2) - 1);
+            var rect = OverlayLayoutMath.ComputeRect(s, vw, vh, 0);
+            _box.Width = rect.Width;
+            double size = s.FontSize, contentHeight = 0;
+            for (var guard = 0; guard < 60; guard++)
+            {
+                _text.FontSize = size;
+                _text.LineHeight = size * 1.3;
+                _textBg.Measure(new Size(rect.Width, double.PositiveInfinity));
+                contentHeight = _textBg.DesiredSize.Height;
+                if (contentHeight <= vh - 2 * margin || size <= 18) break;
+                size -= 2;
+            }
+            rect = OverlayLayoutMath.ComputeRect(s, vw, vh, contentHeight);
+            Canvas.SetLeft(_box, rect.Left);
+            Canvas.SetTop(_box, rect.Top);
         }
-
-        Rect work = _targetMonitorRect ?? new Rect(SystemParameters.WorkArea.Left, SystemParameters.WorkArea.Top, SystemParameters.WorkArea.Width, SystemParameters.WorkArea.Height);
-
-        if (box.HasValue)
+        finally
         {
-            var b = box.Value;
-            // Kullanıcının seçtiği okuma alanının (Oyun Okuma Alanı) yatay merkezine tam otur
-            double targetCenterX = work.Left + (((b.Left + b.Right) / 2.0) * work.Width);
-            Left = Math.Clamp(targetCenterX - (desiredWidth / 2.0), work.Left, Math.Max(work.Left, work.Right - desiredWidth));
-
-            if (style?.Placement == SubtitlePlacement.Cover)
-            {
-                // Orijinal altyazının tam üstüne oturup onu tamamen kapatır (MORT gibi)
-                double originalCenterY = work.Top + (((b.Top + b.Bottom) / 2.0) * work.Height);
-                Top = Math.Clamp(originalCenterY - (desiredHeight / 2.0), work.Top, Math.Max(work.Top, work.Bottom - desiredHeight));
-                _container.MinWidth = Math.Max(420, (b.Right - b.Left) * work.Width + 40);
-                return;
-            }
-            else if (style?.Placement == SubtitlePlacement.Above)
-            {
-                double originalTopY = work.Top + (b.Top * work.Height);
-                Top = Math.Clamp(originalTopY - desiredHeight - 10, work.Top, Math.Max(work.Top, work.Bottom - desiredHeight));
-                _container.MinWidth = 0;
-                return;
-            }
-            else if (style?.Placement == SubtitlePlacement.Below)
-            {
-                double originalBottomY = work.Top + (b.Bottom * work.Height);
-                Top = Math.Clamp(originalBottomY + 10, work.Top, Math.Max(work.Top, work.Bottom - desiredHeight));
-                _container.MinWidth = 0;
-                return;
-            }
+            _rendering = false;
         }
-
-        // Fixed modunda veya kutu yoksa standart alt ortalama
-        Left = work.Left + ((work.Width - desiredWidth) / 2);
-        _container.MinWidth = 0;
-        int bottomPercent = style?.BottomPercent ?? 7;
-        double marginFromBottom = Math.Max(40, work.Height * (bottomPercent / 100.0));
-        Top = work.Bottom - desiredHeight - marginFromBottom;
     }
+
+    /// <summary>"none" / "shadow" / "outline" / "both" -> WPF etkisi (kontur, gölge ve parlama ile yaklaşık çizilir).</summary>
+    private static Effect? OutlineEffect(string kind) => kind switch
+    {
+        "none" => null,
+        "shadow" => new DropShadowEffect { Color = Colors.Black, Direction = 270, ShadowDepth = 2, BlurRadius = 4, Opacity = 1 },
+        "outline" => new DropShadowEffect { Color = Colors.Black, Direction = 0, ShadowDepth = 0, BlurRadius = 3, Opacity = 1 },
+        _ => new DropShadowEffect { Color = Colors.Black, Direction = 270, ShadowDepth = 2, BlurRadius = 5, Opacity = 1 },
+    };
 }

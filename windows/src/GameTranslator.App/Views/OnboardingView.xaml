@@ -278,6 +278,21 @@
 
                             <TextBlock x:Name="PairStatusText" Margin="0,6,0,0" FontSize="13" Foreground="{DynamicResource successBrush}" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
 
+                            <!-- Alternatif: Xbox Remote Play / tarayıcıda oynayanlar için (PS5 gerekmez) -->
+                            <Border Background="#101726" BorderBrush="{DynamicResource accentBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,14,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Xbox'ı tarayıcıda mı oynuyorsun?" FontWeight="SemiBold" FontSize="13" Foreground="White" />
+                                        <TextBlock Text="play.xbox.com/remoteplay için PS5 ve TV gerekmez; altyazı bu bilgisayarda oyunun üstünde görünür." FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="Bunu seç " Click="OnSkipPs5ForXbox" Style="{StaticResource PillButton}" VerticalAlignment="Center" Margin="10,0,0,0" />
+                                </Grid>
+                            </Border>
+
                             <!-- Alternatif: Yakalama Kartı (Capture Card) / OBS Kullanıcıları İçin -->
                             <Border Background="#101726" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,14,0,0">
                                 <Grid>
@@ -304,15 +319,15 @@
                         </Border>
                         <StackPanel VerticalAlignment="Center">
                             <TextBlock Text="Çeviri nerede görünsün?" FontWeight="Bold" FontSize="18" Foreground="{DynamicResource textPrimaryBrush}" />
-                            <TextBlock Text="TV'ni seç. TV yoksa bilgisayar ekranını seç." FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,2,0,0" />
+                            <TextBlock Text="TV'ni seç. TV yoksa ya da Xbox'ı tarayıcıda oynuyorsan &quot;Bu bilgisayarda&quot; seçeneğini seç." FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,2,0,0" />
                         </StackPanel>
                     </StackPanel>
 
                     <!-- Platform Seçim Kartları (Tıklanabilir Butonlar) -->
                     <StackPanel Margin="0,0,0,14">
-                        <!-- 1. PC & OBS -->
-                        <Button Click="OnSelectTvPc" Style="{StaticResource PlainCardButton}" Margin="0,0,0,8">
-                            <Border x:Name="TvBorderPc" Background="{DynamicResource cardBrush}" BorderBrush="{DynamicResource accentBrush}" BorderThickness="2" CornerRadius="8" Padding="12">
+                        <!-- 0. Bu bilgisayarda (tam ekran oyunun üstünde) -->
+                        <Button Click="OnSelectTvOverlay" Style="{StaticResource PlainCardButton}" Margin="0,0,0,8">
+                            <Border x:Name="TvBorderOverlay" Background="{DynamicResource cardBrush}" BorderBrush="{DynamicResource hairlineBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
                                 <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="32" />
@@ -320,10 +335,30 @@
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                        <TextBlock Text="Bilgisayar ekranı" FontWeight="Bold" FontSize="13" Foreground="White" />
-                                        <TextBlock Text="Monitörde oynuyorsan ya da OBS ile yayın yapıyorsan." FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" />
+                                        <TextBlock Text="Bu bilgisayarda (tam ekran oyunun üstünde)" FontWeight="Bold" FontSize="13" Foreground="White" TextWrapping="Wrap" />
+                                        <TextBlock Text="Xbox Remote Play / tarayıcı veya bilgisayar oyunları için — TV gerekmez" FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" />
                                     </StackPanel>
-                                    <Border x:Name="TvBadgePc" Grid.Column="2" Background="{DynamicResource successSoftBrush}" CornerRadius="10" Padding="8,2" VerticalAlignment="Center">
+                                    <Border x:Name="TvBadgeOverlay" Grid.Column="2" Background="{DynamicResource successSoftBrush}" CornerRadius="10" Padding="8,2" VerticalAlignment="Center" Visibility="Collapsed">
+                                        <TextBlock Text="Seçildi" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource successBrush}" />
+                                    </Border>
+                                </Grid>
+                            </Border>
+                        </Button>
+
+                        <!-- 1. PC & OBS -->
+                        <Button Click="OnSelectTvPc" Style="{StaticResource PlainCardButton}" Margin="0,0,0,8">
+                            <Border x:Name="TvBorderPc" Background="{DynamicResource cardBrush}" BorderBrush="{DynamicResource hairlineBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="32" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                        <TextBlock Text="Ayrı ekran / OBS (yalnızca altyazı, oyun görüntüsü yok)" FontWeight="SemiBold" FontSize="13" Foreground="White" TextWrapping="Wrap" />
+                                        <TextBlock Text="Siyah zemin üstünde sadece altyazı akar (ikinci ekran ya da OBS tarayıcı kaynağı). Oyunun kendisi burada görünmez." FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" />
+                                    </StackPanel>
+                                    <Border x:Name="TvBadgePc" Grid.Column="2" Background="{DynamicResource successSoftBrush}" CornerRadius="10" Padding="8,2" VerticalAlignment="Center" Visibility="Collapsed">
                                         <TextBlock Text="Seçildi" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource successBrush}" />
                                     </Border>
                                 </Grid>
@@ -394,10 +429,16 @@
                     <!-- Seçilen Platform Detay Paneli -->
                     <Border Background="{DynamicResource cardBrush}" BorderBrush="{DynamicResource hairlineBrush}" BorderThickness="1" CornerRadius="8" Padding="14">
                         <StackPanel>
-                            <!-- Panel: PC / OBS -->
-                            <StackPanel x:Name="TvDetailPc" Visibility="Visible">
-                                <TextBlock Text="Bilgisayar ekranı seçildi" FontWeight="Bold" FontSize="13" Foreground="{DynamicResource successBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="TV kurman gerekmez. OBS kullanıyorsan şu adresi tarayıcı kaynağı olarak ekle:" FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,0,0,8" />
+                            <!-- Panel: Bu bilgisayarda (oyunun üstünde) -->
+                            <StackPanel x:Name="TvDetailOverlay" Visibility="Collapsed">
+                                <TextBlock Text="Bu bilgisayarda seçildi" FontWeight="Bold" FontSize="13" Foreground="{DynamicResource successBrush}" Margin="0,0,0,4" />
+                                <TextBlock Text="Xbox'ı tarayıcıda oynuyorsan: play.xbox.com/remoteplay sayfasını Edge ya da Chrome'da aç, F11 ile tam ekran yap. Ana ekranda tarayıcı penceresini seçip çeviriyi başlat; Türkçe altyazı oyunun üstünde görünür. Ctrl+Shift+O altyazıyı açar/kapatır, Ctrl+Shift+L altyazı düzenini ayarlar." FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" />
+                            </StackPanel>
+
+                            <!-- Panel: Ayrı ekran / OBS -->
+                            <StackPanel x:Name="TvDetailPc" Visibility="Collapsed">
+                                <TextBlock Text="Ayrı ekran / OBS seçildi" FontWeight="Bold" FontSize="13" Foreground="{DynamicResource successBrush}" Margin="0,0,0,4" />
+                                <TextBlock Text="Bu sayfada oyun görüntüsü yoktur, sadece siyah zemin üstünde altyazı akar. İkinci bir ekranda ya da OBS'te şu adresi tarayıcı kaynağı olarak ekle (oyunu kendi kaynağından göster):" FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,8" />
                                 <Grid Margin="0,0,0,8">
                                     <TextBlock Text="http://localhost:8787/obs" FontFamily="Consolas" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource accentTextBrush}" VerticalAlignment="Center" />
                   <Button Content="Adresi kopyala" HorizontalAlignment="Right" Click="OnCopyObsUrl" Style="{StaticResource PillButton}" />

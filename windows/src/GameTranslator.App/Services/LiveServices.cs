@@ -127,7 +127,8 @@ public sealed class LiveServices : IAppServices
 
         if (settings?.VideoSource == VideoSourceType.DesktopScreen || settings?.VideoSource == VideoSourceType.CaptureCard)
         {
-            return new DesktopCaptureStreamSession(settings?.DesktopWindowName, settings?.ScreenIndex ?? 0);
+            var pc = settings?.PcOverlayMode == true;
+            return new DesktopCaptureStreamSession(settings?.DesktopWindowName, settings?.ScreenIndex ?? 0, pc ? settings?.SavedSource : null, pc);
         }
 
         if (StreamSession.IsNativeAvailable && console != null && accountId != null)

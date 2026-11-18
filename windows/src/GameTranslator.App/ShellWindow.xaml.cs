@@ -16,13 +16,14 @@ public partial class ShellWindow : Window
     private readonly AppController controller;
     private bool showingMain;
     private GlobalHotkeys? hotkeys;
+    private PcOverlayTracker? overlayTracker;
 
     public ShellWindow(AppController controller)
     {
         this.controller = controller;
         InitializeComponent();
         controller.PropertyChanged += OnChanged;
-        // Ctrl+Shift+L: TV altyazı düzeni (Mac: ⌘⇧L).
+        // Ctrl+Shift+L: altyazı düzeni (Mac: ⌘⇧L); "Bu bilgisayarda" modunda genel kısayol olarak da çalışır (aşağıda).
         InputBindings.Add(new System.Windows.Input.KeyBinding(
             new RelayCommand(() => TvLayoutEditorWindow.Show(controller, this)),
             System.Windows.Input.Key.L, System.Windows.Input.ModifierKeys.Control | System.Windows.Input.ModifierKeys.Shift));
@@ -35,9 +36,14 @@ public partial class ShellWindow : Window
             {
                 hotkeys = new GlobalHotkeys(new WindowInteropHelper(this).Handle, OnHotkey);
                 hotkeys.Enabled = controller.IsRunning;
+                hotkeys.ChordsEnabled = controller.Settings.PcOverlayMode;
             }
             catch { }
         };
+        // "Bu bilgisayarda" modu: katman seçilen pencerenin monitörünü izler; Ctrl+Shift+O / Ctrl+Shift+L oyun tarayıcıda tam
+        // ekranken de çalışsın diye genel kısayoldur.
+        overlayTracker = new PcOverlayTracker(controller);
+        overlayTracker.ModeChanged += mode => { if (hotkeys is not null) hotkeys.ChordsEnabled = mode; };
         // Bilgisayarda gösterilecek çeviriler küçük, üstte duran bir kutuda çıkar.
         controller.PcResultReady += PcResultWindow.Display;
         // Canlı oyun içi Türkçe altyazıyı doğrudan bilgisayar ekranında (HUD overlay) göster
@@ -51,6 +57,7 @@ public partial class ShellWindow : Window
             controller.LiveSubtitleShown -= overlayHandler;
             controller.SubtitlesCleared -= DesktopSubtitleOverlay.Clear;
             DesktopSubtitleOverlay.Clear();
+            overlayTracker?.Dispose();
             hotkeys?.Dispose();
             SystemEvents.PowerModeChanged -= OnPowerModeChanged;
             controller.Dispose();
@@ -75,6 +82,8 @@ public partial class ShellWindow : Window
             case HotkeyAction.Snapshot: controller.RequestSnapshot(); break;
             case HotkeyAction.FreeArea: FreeAreaWindow.Open(controller); break;
             case HotkeyAction.Screen: _ = controller.TranslateScreenAsync(); break;
+            case HotkeyAction.OverlayToggle: DesktopSubtitleOverlay.Toggle(); break;
+            case HotkeyAction.LayoutEditor: TvLayoutEditorWindow.Show(controller, this); break;
         }
     }
 

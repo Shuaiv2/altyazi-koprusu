@@ -33,18 +33,31 @@ public sealed class TvLayoutEditorWindow : Window
     private readonly TvLayoutEditorBridge bridge;
     private readonly Action statusChanged;
 
-    private TvLayoutEditorWindow(AppController controller)
+    private readonly bool overlay;
+
+    private TvLayoutEditorWindow(AppController controller, bool overlay)
     {
         this.controller = controller;
-        Title = "TV Altyazı Düzeni";
+        this.overlay = overlay;
+        Title = overlay ? "Bu Bilgisayarda Altyazı Düzeni" : "TV Altyazı Düzeni";
         Width = 1200;
         Height = 760;
         MinWidth = 800;
         MinHeight = 520;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        bridge = new TvLayoutEditorBridge(controller, () => Environment.TickCount64, Schedule);
-        statusChanged = () => Dispatcher.BeginInvoke(PushStatus);
-        controller.TvLayoutStatusChanged += statusChanged;
+        if (overlay)
+        {
+            // Bu bilgisayardaki katmanın düzeni: aynı sayfa ve ayar modeli, TV yerine yerel katman ve yerel dosya.
+            bridge = new TvLayoutEditorBridge(new OverlayLayoutPort(DesktopSubtitleOverlay.Store, DesktopSubtitleOverlay.SetLayout),
+                () => Environment.TickCount64, Schedule, OverlayLayoutPort.ConnectedLabel);
+            statusChanged = () => { };
+        }
+        else
+        {
+            bridge = new TvLayoutEditorBridge(controller, () => Environment.TickCount64, Schedule);
+            statusChanged = () => Dispatcher.BeginInvoke(PushStatus);
+            controller.TvLayoutStatusChanged += statusChanged;
+        }
 
         var page = PagePath();
         if (page is null)
@@ -68,11 +81,19 @@ public sealed class TvLayoutEditorWindow : Window
         Closed += OnClosed;
     }
 
-    /// <summary>Pencereyi açar (zaten açıksa öne getirir).</summary>
-    public static void Show(AppController controller, Window? owner)
+    /// <summary>
+    /// Pencereyi açar (zaten açıksa öne getirir). <paramref name="overlay"/> null ise "Bu bilgisayarda" modu açıkken
+    /// bilgisayardaki katmanın, değilse TV'nin düzeni düzenlenir.
+    /// </summary>
+    public static void Show(AppController controller, Window? owner, bool? overlay = null)
     {
-        if (open is not null) { open.Activate(); return; }
-        open = new TvLayoutEditorWindow(controller) { Owner = owner };
+        var forOverlay = overlay ?? controller.Settings.PcOverlayMode;
+        if (open is not null)
+        {
+            if (open.overlay == forOverlay) { open.Activate(); return; }
+            open.Close();
+        }
+        open = new TvLayoutEditorWindow(controller, forOverlay) { Owner = owner };
         open.Show();
     }
 
@@ -117,7 +138,7 @@ public sealed class TvLayoutEditorWindow : Window
             SubtitleLog.Write($"TV düzenleyicisi açılamadı: {error.GetType().Name}: {error.Message}");
             Content = new TextBlock
             {
-                Text = "TV altyazı düzenleyicisi açılamadı. Microsoft Edge WebView2 Runtime yüklü olmalı.",
+                Text = "Altyazı düzenleyicisi açılamadı. Microsoft Edge WebView2 Runtime yüklü olmalı.",
                 TextWrapping = TextWrapping.Wrap,
                 VerticalAlignment = VerticalAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center,
@@ -147,10 +168,10 @@ public sealed class TvLayoutEditorWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
-        controller.TvLayoutStatusChanged -= statusChanged;
-        // Kaydedilmeden kapanırsa TV'deki önizleme geri alınır.
+        if (!overlay) controller.TvLayoutStatusChanged -= statusChanged;
+        // Kaydedilmeden kapanırsa TV'deki (ya da bilgisayardaki katmandaki) önizleme geri alınır.
         bridge.Closed();
         try { browser.Dispose(); } catch { }
-        open = null;
+        if (open == this) open = null;
     }
 }

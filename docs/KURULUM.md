@@ -32,6 +32,22 @@ Bu bölüm geçicidir; Windows sürümü henüz denenmedi.
 2. SmartScreen uyarısı çıkarsa **Daha fazla bilgi → Yine de çalıştır** deyin. Uygulama imzalı değildir.
 3. Eşleştirme ve PS5 adımları Mac ile aynıdır.
 
+### Xbox / tarayıcıda oynarken (TV olmadan)
+
+Xbox'ı Edge ya da Chrome'da (play.xbox.com/remoteplay) oynuyorsanız PS5, ikinci PSN hesabı ve TV gerekmez; Türkçe altyazı aynı bilgisayar ekranında oyunun üstünde görünür.
+
+1. Edge veya Chrome'da <https://play.xbox.com/remoteplay> sayfasını açıp Xbox'a bağlanın, **F11** ile tam ekran yapın.
+2. Altyazı Köprüsü'nde (kurulum sihirbazında PS5 adımında **"Xbox'ı tarayıcıda mı oynuyorsun?"**, sonraki adımda ya da ana ekranda **Bağlantı → Görüntü Giriş Kaynağı**) **"Bu bilgisayarda (tam ekran oyunun üstünde)"** seçeneğini seçin.
+3. Pencere listesinden tarayıcı penceresini seçin. Başlığında Xbox / Remote Play / Uzaktan Oynatma / Cloud Gaming geçen tarayıcı pencereleri listenin başında gelir; seçiminiz bir sonraki açılışta kendiliğinden bulunur. Okuma alanı varsayılan olarak **Alt Orta**'dır ve oyun penceresinin çizim alanına göredir; gerekirse Okuma Alanı sekmesinden ayarlayın.
+4. Çeviriyi başlatın. Altyazı, seçtiğiniz pencerenin bulunduğu monitörün tamamını kaplayan şeffaf, tıklamayı ve klavye/kumandayı geçiren bir katmanda çıkar; oyun girişini çalmaz.
+5. Kısayollar (tarayıcı tam ekranken de çalışır): **Ctrl+Shift+O** altyazıyı gösterir/gizler, **Ctrl+Shift+L** altyazı düzenini açar (konum, boyut, renk, arka plan; TV ile aynı düzenleyici, ayar `%LOCALAPPDATA%\AltyaziKoprusu\overlay-layout.json` dosyasına yazılır).
+
+Önemli: **"Ayrı ekran / OBS (yalnızca altyazı, oyun görüntüsü yok)"** seçeneği (`http://localhost:8787/obs`) oyunu göstermez; siyah zemin üstünde yalnız altyazı akar. Oyunu ekranda görmek için yukarıdaki "Bu bilgisayarda" seçeneğini kullanın.
+
+Çeviri için iki yol var: yerel model (ilk açılışta indirilir, internet gerekmez) ya da çevrimiçi sağlayıcı (DeepL veya Gemini anahtarı; ayarlardan girilir). Hangisini seçtiğiniz altyazının kalitesini ve hızını etkiler.
+
+Bu mod henüz gerçek bir Windows bilgisayarda denenmedi; pencere yakalama önce PrintWindow ile, kare siyah gelirse ekran kopyasıyla yapılır ve hangi yöntemin çalıştığı günlüğe yazılır.
+
 ## Sorun giderme
 
 - **Hata 0x80108b12**: O kullanıcı veya konsol için Remote Play kapalı. PS5'te ikinci kullanıcının Remote Play ayarını açın ve konsolun uyku/açık durumunu kontrol edin.

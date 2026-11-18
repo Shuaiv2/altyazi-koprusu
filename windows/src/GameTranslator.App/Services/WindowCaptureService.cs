@@ -636,4 +636,170 @@ public static class WindowCaptureService
 
         return list;
     }
+
+    // ======================================================================
+    // "Bu bilgisayarda" modu: pencere listesi, istemci alanı yakalama
+    // ======================================================================
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("dwmapi.dll", EntryPoint = "DwmGetWindowAttribute")]
+    private static extern int DwmGetWindowAttributeInt(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
+    private const int DWMWA_CLOAKED = 14;
+    private const uint PW_CLIENTONLY = 0x00000001;
+
+    /// <summary>Görünür, simge durumunda olmayan, başlıklı üst düzey pencereler (süreç adıyla); kendi pencerelerimiz hariç.</summary>
+    public static IReadOnlyList<GameTranslator.Shell.WindowEntry> EnumerateWindows()
+    {
+        var list = new List<GameTranslator.Shell.WindowEntry>();
+        var processNames = new Dictionary<uint, string>();
+        try
+        {
+            EnumWindows((hWnd, _) =>
+            {
+                try
+                {
+                    if (!IsWindowVisible(hWnd) || IsIconic(hWnd)) return true;
+                    // UWP'nin görünmeyen "hayalet" pencereleri (cloaked) listede olmasın.
+                    if (DwmGetWindowAttributeInt(hWnd, DWMWA_CLOAKED, out var cloaked, sizeof(int)) == 0 && cloaked != 0) return true;
+                    GetWindowThreadProcessId(hWnd, out var pid);
+                    if (pid == 0 || pid == Environment.ProcessId) return true;
+                    if (!GetClientRect(hWnd, out var rect) || rect.Width < 200 || rect.Height < 120) return true;
+                    var sb = new StringBuilder(256);
+                    GetWindowText(hWnd, sb, 256);
+                    var title = sb.ToString().Trim();
+                    if (title.Length == 0 || title.Equals("Program Manager", StringComparison.OrdinalIgnoreCase)) return true;
+                    if (!processNames.TryGetValue(pid, out var name))
+                    {
+                        try { using var proc = Process.GetProcessById((int)pid); name = proc.ProcessName; }
+                        catch { name = ""; }
+                        processNames[pid] = name;
+                    }
+                    list.Add(new GameTranslator.Shell.WindowEntry(hWnd, title, name, rect.Width, rect.Height));
+                }
+                catch { }
+                return true;
+            }, IntPtr.Zero);
+        }
+        catch { }
+        return list;
+    }
+
+    /// <summary>Pencere hâlâ var ve görünür mü.</summary>
+    public static bool IsUsableWindow(IntPtr hWnd) => hWnd != IntPtr.Zero && IsWindow(hWnd) && IsWindowVisible(hWnd) && !IsIconic(hWnd);
+
+    /// <summary>Pencerenin başlığı (boşsa "").</summary>
+    public static string GetTitle(IntPtr hWnd)
+    {
+        var sb = new StringBuilder(256);
+        GetWindowText(hWnd, sb, 256);
+        return sb.ToString().Trim();
+    }
+
+    /// <summary>Pencerenin istemci alanı (sanal masaüstü pikseli); alınamazsa null.</summary>
+    public static GameTranslator.Shell.ScreenRect? GetClientScreenRect(IntPtr hWnd)
+    {
+        try
+        {
+            if (!IsWindow(hWnd) || !GetClientRect(hWnd, out var rect) || rect.Width <= 0 || rect.Height <= 0) return null;
+            var origin = new POINT();
+            if (!ClientToScreen(hWnd, ref origin)) return null;
+            return new GameTranslator.Shell.ScreenRect(origin.X, origin.Y, rect.Width, rect.Height);
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Yakalama yöntemleri; günlüğe hangisinin çalıştığı yazılır.</summary>
+    public enum CaptureMethod { PrintWindow, ScreenBitBlt }
+
+    /// <summary>Son çalışan yöntemi hatırlar; önce o denenir, siyah dönerse diğeri.</summary>
+    public sealed class ClientCaptureState
+    {
+        public CaptureMethod Preferred = CaptureMethod.PrintWindow;
+        public CaptureMethod? Logged;
+    }
+
+    /// <summary>
+    /// Pencerenin İSTEMCİ alanını yakalar (okuma kutusu bu alana göredir; başlık çubuğu/kenarlık yok).
+    /// 1) PrintWindow(PW_CLIENTONLY | PW_RENDERFULLCONTENT): pencerenin kendi tamponu, üstünü başka pencere örtse de çalışır.
+    /// 2) Kare siyahsa (Chromium'un GPU yüzeyi bazı sürücülerde böyle gelir): pencerenin ekran dikdörtgeninin BitBlt'i;
+    ///    katmanımız WDA_EXCLUDEFROMCAPTURE ile yakalamadan gizli olduğundan güvenlidir (pencere görünür ve üstte olmalı).
+    /// İkisi de siyahsa gerçekten karanlık bir sahne sayılır ve karanlık kare döner. Windows.Graphics.Capture bu derlemede yok.
+    /// </summary>
+    public static Frame? CaptureClient(IntPtr hWnd, ClientCaptureState state)
+    {
+        if (!IsUsableWindow(hWnd)) return null;
+        if (!GetClientRect(hWnd, out var rect) || rect.Width < 100 || rect.Height < 100) return null;
+        var origin = new POINT();
+        if (!ClientToScreen(hWnd, ref origin)) return null;
+        int width = rect.Width, height = rect.Height;
+
+        CaptureMethod[] order = state.Preferred == CaptureMethod.PrintWindow
+            ? [CaptureMethod.PrintWindow, CaptureMethod.ScreenBitBlt]
+            : [CaptureMethod.ScreenBitBlt, CaptureMethod.PrintWindow];
+
+        Frame? darkFallback = null;
+        foreach (var method in order)
+        {
+            Frame? frame = null;
+            try
+            {
+                frame = method == CaptureMethod.PrintWindow
+                    ? PrintClient(hWnd, width, height)
+                    : CaptureScreen(origin.X, origin.Y, width, height);
+            }
+            catch { }
+            if (frame is null) continue;
+            if (!IsFrameBlack(frame.Pixels, frame.Width, frame.Height))
+            {
+                state.Preferred = method;
+                if (state.Logged != method)
+                {
+                    state.Logged = method;
+                    SubtitleLog.Write($"pencere yakalama yöntemi: {(method == CaptureMethod.PrintWindow ? "PrintWindow (PW_CLIENTONLY|PW_RENDERFULLCONTENT)" : "ekran BitBlt (pencere dikdörtgeni)")} {width}x{height}");
+                }
+                return frame;
+            }
+            darkFallback ??= frame;
+        }
+        if (darkFallback is not null && state.Logged is null)
+            SubtitleLog.Write("pencere yakalama: iki yöntem de siyah kare verdi (karanlık sahne ya da pencere görünmüyor)");
+        return darkFallback;
+    }
+
+    private static Frame? PrintClient(IntPtr hWnd, int width, int height)
+    {
+        IntPtr srcDc = GetDC(IntPtr.Zero);
+        if (srcDc == IntPtr.Zero) return null;
+        IntPtr memDc = CreateCompatibleDC(srcDc);
+        IntPtr hBitmap = CreateCompatibleBitmap(srcDc, width, height);
+        IntPtr oldBmp = SelectObject(memDc, hBitmap);
+        try
+        {
+            if (!PrintWindow(hWnd, memDc, PW_CLIENTONLY | PW_RENDERFULLCONTENT)) return null;
+            var bi = new BITMAPINFO
+            {
+                bmiHeader = new BITMAPINFOHEADER
+                {
+                    biSize = (uint)Marshal.SizeOf<BITMAPINFOHEADER>(),
+                    biWidth = width,
+                    biHeight = -height,
+                    biPlanes = 1,
+                    biBitCount = 32,
+                    biCompression = BI_RGB
+                }
+            };
+            var pixels = new byte[width * height * 4];
+            GetDIBits(memDc, hBitmap, 0, (uint)height, pixels, ref bi, DIB_RGB_COLORS);
+            return new Frame(pixels, width, height, width * 4);
+        }
+        finally
+        {
+            SelectObject(memDc, oldBmp);
+            DeleteObject(hBitmap);
+            DeleteDC(memDc);
+            ReleaseDC(IntPtr.Zero, srcDc);
+        }
+    }
 }
