@@ -9,6 +9,8 @@ import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
 import android.media.tv.TvView;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.view.KeyEvent;
 import android.view.View;
@@ -35,6 +37,24 @@ public class MainActivity extends Activity {
     private WebView webView;
     private String launchParams = "";
 
+    private static final long RESUME_RETUNE_DELAY_MS = 1200;
+    private static final int MAX_RETRIES = 5;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private String lastInputId;
+    private boolean needsRetune;
+    private boolean started;
+    private boolean retunePending;
+    private int retryAttempts;
+    private final Runnable retuneRunnable = new Runnable() {
+        @Override public void run() {
+            retunePending = false;
+            if (!started || tvView == null || lastInputId == null) return;
+            needsRetune = false;
+            status("loading");
+            tuneInput(lastInputId);
+        }
+    };
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -46,10 +66,10 @@ public class MainActivity extends Activity {
         if (getSystemService(TV_INPUT_SERVICE) != null) {
             tvView = new TvView(this);
             tvView.setCallback(new TvView.TvInputCallback() {
-                @Override public void onConnectionFailed(String inputId) { status("inputError"); }
-                @Override public void onDisconnected(String inputId) { status("inputError"); }
-                @Override public void onVideoAvailable(String inputId) { status("playing"); }
-                @Override public void onVideoUnavailable(String inputId, int reason) { status("inputError"); }
+                @Override public void onConnectionFailed(String inputId) { status("inputError"); scheduleBackoffRetune(); }
+                @Override public void onDisconnected(String inputId) { status("inputError"); scheduleBackoffRetune(); }
+                @Override public void onVideoAvailable(String inputId) { retryAttempts = 0; status("playing"); }
+                @Override public void onVideoUnavailable(String inputId, int reason) { status("inputError"); scheduleBackoffRetune(); }
             });
             root.addView(tvView);
         }
@@ -142,7 +162,55 @@ public class MainActivity extends Activity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        started = true;
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        // Diğer uygulama (ör. PlayTv) donanımı bıraktıktan sonra yeniden ayarla.
+        if (needsRetune && lastInputId != null) scheduleRetune(RESUME_RETUNE_DELAY_MS);
+    }
+
+    @Override
+    protected void onStop() {
+        started = false;
+        cancelRetune();
+        if (tvView != null) tvView.reset();
+        needsRetune = true;
+        super.onStop();
+    }
+
+    private void cancelRetune() {
+        handler.removeCallbacks(retuneRunnable);
+        retunePending = false;
+    }
+
+    private void scheduleRetune(long delayMs) {
+        handler.removeCallbacks(retuneRunnable);
+        retunePending = true;
+        handler.postDelayed(retuneRunnable, delayMs);
+    }
+
+    /** 1 sn, 2 sn, 4 sn, 8 sn, 16 sn aralıklarla en çok 5 deneme; durmuşken veya zaten bekleyen varsa yapmaz. */
+    private void scheduleBackoffRetune() {
+        if (!started || tvView == null || lastInputId == null || retunePending) return;
+        if (retryAttempts >= MAX_RETRIES) return;
+        long delay = 1000L << retryAttempts;
+        retryAttempts++;
+        scheduleRetune(delay);
+    }
+
+    private void tuneInput(String id) {
+        lastInputId = id;
+        tvView.tune(id, TvContract.buildChannelUriForPassthroughInput(id));
+    }
+
+    @Override
     protected void onDestroy() {
+        cancelRetune();
         if (tvView != null) tvView.reset();
         webView.destroy();
         super.onDestroy();
@@ -195,7 +263,10 @@ public class MainActivity extends Activity {
                     return;
                 }
                 String id = inputs.get(port - 1).getId();
-                tvView.tune(id, TvContract.buildChannelUriForPassthroughInput(id));
+                cancelRetune();
+                retryAttempts = 0;
+                needsRetune = false;
+                tuneInput(id);
             });
         }
 
