@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace GameTranslator.Core;
@@ -84,9 +85,13 @@ public sealed record SubtitleEvent(SubtitleEventKind Kind, string Text = "", int
 
 /// <summary>
 /// TV uygulamasının bağlandığı yerel Server-Sent Events sunucusu.
-/// <c>GET /events</c> akışında <c>subtitle</c>, <c>clear</c> ve <c>style</c> olaylarını yayınlar.
+/// <c>GET /events</c> akışında <c>subtitle</c>, <c>clear</c>, <c>style</c> ve <c>layout</c> olaylarını yayınlar.
+/// <c>/tv-layout</c> uzaktan düzen protokolünü de konuşur (docs/uzaktan-duzen-protokolu.md; Mac: NativeSubtitleServer).
 /// </summary>
-public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = null) : ISubtitleSender, IDisposable
+/// <param name="layoutStorePath">
+/// TV'nin bildirdiği son düzenin saklandığı dosya (Mac'teki UserDefaults <c>gt_tv_layout</c> karşılığı); null ise bellekte kalır.
+/// </param>
+public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = null, string? layoutStorePath = null) : ISubtitleSender, IDisposable
 {
     private sealed class Client(TcpClient tcp, bool viewer = false)
     {
@@ -120,9 +125,90 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
     private readonly Dictionary<string, (byte[] Data, string Type)> files = new(StringComparer.Ordinal);
     private readonly Queue<string> speechPaths = new();
     private int speechNumber;
+    private string provider = "";
+    // TV'nin bildirdiği altyazı düzeni (yalnız "settings" nesnesi, sıkıştırılmış JSON) ve zamanı.
+    private string? lastLayoutJson;
+    private DateTimeOffset? lastLayoutAt;
+    private int layoutRev;
+    private bool layoutLoaded;
+
+    /// <summary>İstek gövdesi ve başlıklar için üst sınır (64 KB; Mac ile aynı).</summary>
+    internal const int MaxRequestBytes = 65536;
 
     /// <summary>Bağlı TV sayısı değişince çağrılır (iş parçacığı havuzunda).</summary>
     public event Action<int>? ClientsChanged;
+
+    /// <summary>
+    /// TV bağlantısı (izleyici olmayan SSE istemcisi) değiştiğinde ya da TV yeni bir düzen bildirdiğinde çağrılır
+    /// (iş parçacığı havuzunda; arayüz kendi iş parçacığına geçmelidir).
+    /// </summary>
+    public event Action? TvStatusChanged;
+
+    /// <summary>
+    /// Yalnız ortam değişkeni <c>ALTYAZI_DEV=1</c> iken <c>GET /translate-test?text=...</c> için: çeviri + gönderim yapıp
+    /// JSON gövdesini döner (Mac ile aynı geliştirici kancası).
+    /// </summary>
+    public Func<string, Task<string>>? OnTranslateTest { get; set; }
+
+    /// <summary>
+    /// Seçili çeviri sağlayıcısının adı; TV "Çeviri sağlayıcısı" satırında gösterir (anahtar değil, yalnız ad).
+    /// Değişince <c>style</c> olayı yeni adla yayınlanır; her altyazıya ve yeni bağlanan istemcinin ilk çerçevesine de girer.
+    /// </summary>
+    public string Provider
+    {
+        get { lock (gate) return provider; }
+        set
+        {
+            SubtitleStyle style;
+            lock (gate)
+            {
+                if (provider == value) return;
+                provider = value;
+                style = lastStyle ?? new SubtitleStyle();
+            }
+            Broadcast(StyleFrame(style, value), subtitle: true);
+        }
+    }
+
+    /// <summary>En az bir izleyici olmayan SSE istemcisi (TV) bağlı mı.</summary>
+    public bool TvConnected => ConnectedClients > 0;
+
+    /// <summary>TV'nin bildirdiği son düzen (<c>settings</c> nesnesi, JSON) ve zamanı; hiç bildirim gelmediyse null.</summary>
+    public (string Json, DateTimeOffset? At)? LastTvLayout
+    {
+        get
+        {
+            lock (gate)
+            {
+                LoadLayout();
+                return lastLayoutJson is { } json ? (json, lastLayoutAt) : null;
+            }
+        }
+    }
+
+    /// <summary>
+    /// TV'ye <c>layout</c> olayı gönderir (<paramref name="mode"/>: preview, save, cancel). <c>rev</c> her çağrıda artar.
+    /// Altyazı olayı sayılmaz: <see cref="SendsToTv"/> kapalıyken de gider.
+    /// </summary>
+    public void SendLayout(string mode, JsonNode? settings)
+    {
+        int rev;
+        lock (gate) rev = ++layoutRev;
+        Broadcast(Frame("layout", new SortedDictionary<string, object?>
+        {
+            ["mode"] = mode,
+            ["rev"] = rev,
+            ["settings"] = settings?.DeepClone() ?? new JsonObject(),
+        }));
+    }
+
+    /// <summary><see cref="SendLayout(string, JsonNode?)"/>; ayarlar JSON metni olarak verilir (geçersizse boş nesne).</summary>
+    public void SendLayout(string mode, string settingsJson)
+    {
+        JsonNode? node = null;
+        try { node = JsonNode.Parse(settingsJson); } catch (JsonException) { }
+        SendLayout(mode, node as JsonObject);
+    }
 
     /// <summary>
     /// Altyazı ve temizleme olayları gönderildiği anda buraya da verilir (çağıranın iş parçacığında). Bilgisayar
@@ -197,7 +283,9 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
         if (paragraphs) json["paragraphs"] = true;
         if (replaces) json["replace"] = true;
         SubtitleStyle? style;
-        lock (gate) style = lastStyle;
+        string providerName;
+        lock (gate) { style = lastStyle; providerName = provider; }
+        if (providerName.Length > 0) json["provider"] = providerName;
         // Örtme yerleşiminde zemin tek parça olsun diye kutu çevirinin sığacağı kadar büyütülür.
         if (box is { } b)
         {
@@ -276,8 +364,9 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
 
     public void SendStyle(SubtitleStyle style)
     {
-        lock (gate) lastStyle = style;
-        Broadcast(StyleFrame(style), subtitle: true);
+        string providerName;
+        lock (gate) { lastStyle = style; providerName = provider; }
+        Broadcast(StyleFrame(style, providerName), subtitle: true);
     }
 
     // --- Bağlantılar ---
@@ -301,7 +390,14 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
             // Altyazı çerçeveleri küçüktür; Nagle beklemesi her satırı TV'ye geç ulaştırmasın.
             tcp.NoDelay = true;
             var stream = tcp.GetStream();
-            var requestLine = await ReadRequestLine(stream);
+            var request = await ReadRequest(stream);
+            if (request is null) { tcp.Dispose(); return; }
+            if (request.TooLarge)
+            {
+                await RespondAndClose(tcp, "413 Payload Too Large", "Too Large");
+                return;
+            }
+            var requestLine = request.Line;
             var parts = requestLine?.Split(' ') ?? [];
             var method = parts.Length > 0 ? parts[0] : "";
             var target = parts.Length > 1 ? parts[1] : "";
@@ -312,6 +408,29 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
                 var optionsHead = "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: *\r\nConnection: close\r\n\r\n";
                 await tcp.GetStream().WriteAsync(Encoding.ASCII.GetBytes(optionsHead));
                 tcp.Dispose();
+            }
+            else if (method == "POST" && path == "/tv-layout")
+            {
+                if (StoreTvLayout(request.Body)) await RespondAndClose(tcp, "200 OK", "{\"status\":\"ok\"}");
+                else await RespondAndClose(tcp, "400 Bad Request", "{\"status\":\"error\"}");
+            }
+            else if (method == "GET" && path == "/tv-layout")
+            {
+                string json;
+                lock (gate) { LoadLayout(); json = lastLayoutJson ?? "{}"; }
+                await RespondAndClose(tcp, "200 OK", json);
+            }
+            else if (method == "GET" && path == "/translate-test" && OnTranslateTest is { } translateTest
+                     && Environment.GetEnvironmentVariable("ALTYAZI_DEV") == "1")
+            {
+                var text = "";
+                if (target.IndexOf('?') is >= 0 and var q)
+                {
+                    foreach (var pair in target[(q + 1)..].Split('&'))
+                        if (pair.StartsWith("text=", StringComparison.Ordinal))
+                            text = Uri.UnescapeDataString(pair[5..].Replace('+', ' '));
+                }
+                await RespondAndClose(tcp, "200 OK", await translateTest(text));
             }
             else if (method == "GET" && path == "/events") await OpenStream(tcp, target.Contains("viewer=obs", StringComparison.Ordinal));
             else if (method == "GET" && path == "/obs") await RespondAndClose(tcp, ObsOverlay, "text/html; charset=utf-8");
@@ -333,21 +452,105 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
         }
     }
 
-    /// <summary>Başlıkların sonuna (boş satır) kadar okur, ilk satırı döner. 64 KB'yi aşan istek kapatılır.</summary>
-    private static async Task<string?> ReadRequestLine(Stream stream)
+    private sealed record Request(string Line, byte[] Body, bool TooLarge = false);
+
+    /// <summary>
+    /// Başlıkların sonuna (boş satır) kadar okur; Content-Length varsa gövdeyi de okur. 64 KB'yi aşan başlık kapatılır
+    /// (null), 64 KB'yi aşan gövde <c>TooLarge</c> olarak bildirilir (413).
+    /// </summary>
+    private static async Task<Request?> ReadRequest(Stream stream)
     {
         var buffer = new byte[8192];
-        using var head = new MemoryStream();
-        while (head.Length < 65536)
+        using var data = new MemoryStream();
+        int headEnd;
+        while (true)
+        {
+            if (data.Length >= MaxRequestBytes) return null;
+            var count = await stream.ReadAsync(buffer);
+            if (count == 0) return null;
+            data.Write(buffer, 0, count);
+            headEnd = IndexOfHeaderEnd(data.GetBuffer(), (int)data.Length);
+            if (headEnd >= 0) break;
+        }
+        var head = Encoding.ASCII.GetString(data.GetBuffer(), 0, headEnd);
+        var lines = head.Split("\r\n");
+        var contentLength = 0;
+        foreach (var line in lines.Skip(1))
+        {
+            var colon = line.IndexOf(':');
+            if (colon > 0 && line[..colon].Trim().Equals("content-length", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(line[(colon + 1)..].Trim(), out var n))
+                contentLength = n;
+        }
+        if (contentLength > MaxRequestBytes) return new Request(lines[0], [], TooLarge: true);
+        var bodyStart = headEnd + 4;
+        while (data.Length - bodyStart < contentLength)
         {
             var count = await stream.ReadAsync(buffer);
             if (count == 0) return null;
-            head.Write(buffer, 0, count);
-            var text = Encoding.ASCII.GetString(head.GetBuffer(), 0, (int)head.Length);
-            var end = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
-            if (end >= 0) return text[..text.IndexOf("\r\n", StringComparison.Ordinal)];
+            data.Write(buffer, 0, count);
         }
-        return null;
+        var body = contentLength > 0 ? data.GetBuffer().AsSpan(bodyStart, contentLength).ToArray() : [];
+        return new Request(lines[0], body);
+    }
+
+    private static int IndexOfHeaderEnd(byte[] bytes, int length)
+    {
+        for (var i = 0; i + 3 < length; i++)
+            if (bytes[i] == 13 && bytes[i + 1] == 10 && bytes[i + 2] == 13 && bytes[i + 3] == 10) return i;
+        return -1;
+    }
+
+    // --- TV düzeni ---
+
+    /// <summary>Kalıcı dosyadaki son düzeni bir kez okur (gate kilidi içinde çağrılır).</summary>
+    private void LoadLayout()
+    {
+        if (layoutLoaded) return;
+        layoutLoaded = true;
+        if (layoutStorePath is null) return;
+        try
+        {
+            if (!File.Exists(layoutStorePath)) return;
+            var node = JsonNode.Parse(File.ReadAllText(layoutStorePath)) as JsonObject;
+            if (node?["settings"] is JsonObject settings)
+            {
+                lastLayoutJson = settings.ToJsonString(JsonOptions);
+                lastLayoutAt = node["at"] is { } at && DateTimeOffset.TryParse(at.ToString(), out var when) ? when : null;
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { }
+    }
+
+    /// <summary>POST /tv-layout gövdesi <c>{"settings":{...}}</c>; geçerliyse saklar, TV durumu değişti diye bildirir.</summary>
+    private bool StoreTvLayout(byte[] body)
+    {
+        JsonObject? settings;
+        try { settings = (JsonNode.Parse(body) as JsonObject)?["settings"] as JsonObject; }
+        catch (JsonException) { return false; }
+        if (settings is null) return false;
+        // Anahtarlar sıralı saklanır (Mac: .sortedKeys).
+        var sorted = new JsonObject();
+        foreach (var pair in settings.OrderBy(p => p.Key, StringComparer.Ordinal)) sorted[pair.Key] = pair.Value?.DeepClone();
+        var json = sorted.ToJsonString(JsonOptions);
+        var now = DateTimeOffset.UtcNow;
+        lock (gate)
+        {
+            layoutLoaded = true;
+            lastLayoutJson = json;
+            lastLayoutAt = now;
+        }
+        if (layoutStorePath is not null)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(layoutStorePath))!);
+                File.WriteAllText(layoutStorePath, new JsonObject { ["at"] = now.ToString("O"), ["settings"] = sorted.DeepClone() }.ToJsonString(JsonOptions));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        }
+        TvStatusChanged?.Invoke();
+        return true;
     }
 
     private (byte[] Data, string Type)? FindFile(string path)
@@ -398,12 +601,14 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
         int count;
         lock (gate)
         {
-            if (lastStyle is { } style) head.Append(StyleFrame(style));
+            // Sağlayıcı adı biliniyorsa stil henüz gönderilmemiş olsa da ilk çerçeveye girer (Mac'te stil her zaman gider).
+            if ((lastStyle ?? (provider.Length > 0 ? new SubtitleStyle() : null)) is { } style) head.Append(StyleFrame(style, provider));
             clients.Add(client);
             count = TvCount();
         }
         await Write(client, head.ToString());
         ClientsChanged?.Invoke(count);
+        TvStatusChanged?.Invoke();
         await WatchForClose(client);
     }
 
@@ -429,6 +634,7 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
         }
         client.Tcp.Dispose();
         ClientsChanged?.Invoke(count);
+        TvStatusChanged?.Invoke();
     }
 
     /// <summary>
@@ -476,8 +682,9 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
     /// olduğu için arkada iki ayrı çubuk görünüyordu. Çevirinin kendi zemini kapatılır (yalnız örtü kalır), önceki
     /// satır da üstüne yığılmaz; örtü kutusu çeviriye göre büyütülür (<see cref="CoverFit"/>).
     /// </summary>
-    private static string StyleFrame(SubtitleStyle style) =>
-        Frame("style", new SortedDictionary<string, object>
+    private static string StyleFrame(SubtitleStyle style, string provider = "")
+    {
+        var json = new SortedDictionary<string, object?>
         {
             ["background"] = style.Placement == SubtitlePlacement.Cover ? 0 : Math.Clamp(style.Background, 0, 100),
             ["bold"] = style.Bold,
@@ -489,9 +696,13 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
             ["speakerColor"] = !style.SpeakerColor ? "" : style.TextColor == SubtitleTextColor.Yellow ? "#64D2FF" : "#FFD60A",
             ["stackPrevious"] = style.StackPrevious && style.Placement != SubtitlePlacement.Cover,
             ["textColor"] = style.TextColor.ToString().ToLowerInvariant(),
-        });
+        };
+        // Çeviri sağlayıcısının adı (yalnız ad, anahtar değil); boşsa alan yok.
+        if (provider.Length > 0) json["provider"] = provider;
+        return Frame("style", json);
+    }
 
-    private static string Frame(string name, SortedDictionary<string, object> json) =>
+    private static string Frame<T>(string name, SortedDictionary<string, T> json) =>
         $"event: {name}\ndata: {JsonSerializer.Serialize(json, JsonOptions)}\n\n";
 }
 
