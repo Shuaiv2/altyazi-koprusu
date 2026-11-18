@@ -2902,6 +2902,15 @@ final class AppState {
         }
     }
 
+    // SwiftUI may re-run `@State var state = AppState()`; only the first instance is kept.
+    private static var didStartServices = false
+
+    func attachLayoutEditor() {
+        TVLayoutEditor.shared.server = server
+        server.onTVStatusChanged = { TVLayoutEditor.shared.pushStatus() }
+        TVLayoutEditor.shared.pushStatus()
+    }
+
     init() {
         if let email = UserDefaults.standard.string(forKey: "gt_psn_email"), !email.isEmpty {
             self.psnEmail = email
@@ -2944,23 +2953,25 @@ final class AppState {
             guard let self else { return }
             if count > 0 { self.tvConnected = true }
         }
-        TVLayoutEditor.shared.server = server
-        server.onTVStatusChanged = { TVLayoutEditor.shared.pushStatus() }
         local.targetCode = targetLanguage
         local.onStatusChanged = { [weak self] in
             guard let self else { return }
             self.server.provider = self.providerLabel
         }
-        Task { await self.local.refreshStatus() }
+        let isPrimary = !AppState.didStartServices
+        AppState.didStartServices = true
+        if isPrimary { Task { await self.local.refreshStatus() } }
         if ProcessInfo.processInfo.environment["ALTYAZI_DEV"] == "1" {
             server.onTranslateTest = { [weak self] text in
                 guard let self else { return #"{"ok":false,"error":"state"}"# }
                 return await self.devTranslateTest(text)
             }
         }
-        server.start()
-        syncStyleToTV()
-        syncChiakiConfig()
+        if isPrimary {
+            server.start()
+            syncStyleToTV()
+            syncChiakiConfig()
+        }
         if psnLinked && ps5Paired {
             showSetup = false
             isOnboarded = true
@@ -3120,6 +3131,7 @@ struct MainWindowView: View {
         .background(TranslationHostView(local: state.local))
         .animation(.easeInOut(duration: 0.22), value: state.showSetup)
         .onAppear {
+            state.attachLayoutEditor()
             _ = state.checkScreenCapturePermission()
         }
         .onReceive(Timer.publish(every: 1.0, on: .main, in: .common).autoconnect()) { _ in
