@@ -96,6 +96,10 @@ public static class WindowCaptureService
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_NOACTIVATE = 0x0010;
+    private const uint SWP_NOZORDER = 0x0004;
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
 
     [DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
@@ -258,9 +262,7 @@ public static class WindowCaptureService
     /// </summary>
     public static IntPtr FindTargetWindow(out string windowTitle)
     {
-        IntPtr found = IntPtr.Zero;
-        string foundTitle = string.Empty;
-        int bestScore = -1;
+        var candidates = new List<GameTranslator.Shell.CaptureCandidate>();
 
         EnumWindows((hWnd, _) =>
         {
@@ -285,34 +287,40 @@ public static class WindowCaptureService
                 // Sadece yetkili PS Remote Play süreçlerini kabul et
                 if (!RemotePlayProcessNames.Contains(procName)) return true;
 
-                if (!GetClientRect(hWnd, out var rect) || rect.Width < 250 || rect.Height < 150)
-                    return true;
+                if (!GetClientRect(hWnd, out var rect)) return true;
 
                 var sb = new StringBuilder(256);
                 GetWindowText(hWnd, sb, 256);
                 var title = sb.ToString();
-
-                // Yayın/oyun penceresine öncelik ver
-                int score = 10;
-                if (title.Contains("Stream", StringComparison.OrdinalIgnoreCase)) score += 50;
-                if (title.Contains("PlayStation", StringComparison.OrdinalIgnoreCase)) score += 30;
-                if (title.Contains("PS5", StringComparison.OrdinalIgnoreCase)) score += 30;
-                if (rect.Width >= 1200 || rect.Height >= 700) score += 20;
-
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    found = hWnd;
-                    foundTitle = string.IsNullOrWhiteSpace(title) ? procName : title;
-                }
+                candidates.Add(new GameTranslator.Shell.CaptureCandidate(hWnd, string.IsNullOrWhiteSpace(title) ? procName : title, rect.Width, rect.Height));
             }
             catch { }
 
             return true;
         }, IntPtr.Zero);
 
-        windowTitle = foundTitle;
-        return found;
+        // İlk eşleşme değil, en büyük görünür pencere (ana akış penceresi; küçük yan pencereler değil).
+        var best = GameTranslator.Shell.CaptureWindowPicker.Best(candidates);
+        windowTitle = best?.Title ?? string.Empty;
+        return best?.Handle ?? IntPtr.Zero;
+    }
+
+    /// <summary>
+    /// Pencerenin istemci alanını verilen boyuta (varsayılan 1280x720) getirir; konumu ve odağı bozmaz. Boyut zaten
+    /// doğruysa dokunmaz. Okuma bölgeleri yüzde olduğundan yayın penceresinin sabit boyutta olması OCR'ı kararlı tutar.
+    /// </summary>
+    public static void ResizeClient(IntPtr hWnd, int width = 1280, int height = 720)
+    {
+        try
+        {
+            if (hWnd == IntPtr.Zero || !GetClientRect(hWnd, out var client)) return;
+            if (client.Width == width && client.Height == height) return;
+            if (!GetWindowRect(hWnd, out var outer)) return;
+            var frameW = outer.Width - client.Width;
+            var frameH = outer.Height - client.Height;
+            SetWindowPos(hWnd, IntPtr.Zero, 0, 0, width + frameW, height + frameH, SWP_NOMOVE | SWP_NOACTIVATE | SWP_NOZORDER);
+        }
+        catch { }
     }
 
     /// <summary>

@@ -550,7 +550,7 @@ public partial class OnboardingView : UserControl
             await controller.PairAsync(new LgTv("Samsung Smart TV", host, TvBrand.Samsung));
         }
         catch { }
-        TvStatusFeedback.Text = $"✓ Samsung TV kaydedildi ({host}). TV'de GameTranslator'ı aç.";
+        TvStatusFeedback.Text = $"✓ Samsung TV kaydedildi ({host}). TV'de Altyazı Köprüsü'nü aç.";
         TvStatusFeedback.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
     }
 
@@ -565,7 +565,7 @@ public partial class OnboardingView : UserControl
             await controller.PairAsync(new LgTv("LG webOS TV", host, TvBrand.Lg));
         }
         catch { }
-        TvStatusFeedback.Text = $"✓ LG TV kaydedildi ({host}). TV'de GameTranslator'ı aç.";
+        TvStatusFeedback.Text = $"✓ LG TV kaydedildi ({host}). TV'de Altyazı Köprüsü'nü aç.";
         TvStatusFeedback.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
     }
 
@@ -649,7 +649,7 @@ public partial class OnboardingView : UserControl
             });
 
             AndroidInstallStatus.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
-            AndroidInstallStatus.Text = $"✓ Başarılı! GameTranslator v{version} TV'ye kuruldu ve açıldı.";
+            AndroidInstallStatus.Text = $"✓ Başarılı! Altyazı Köprüsü v{version} TV'ye kuruldu ve açıldı.";
             TvStatusFeedback.Text = $"✓ Android TV ({host}) bağlandı ve uygulama hazır.";
             TvStatusFeedback.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
         }
@@ -699,7 +699,7 @@ public partial class OnboardingView : UserControl
 
     private void OnOpenAndroidApk(object sender, RoutedEventArgs e)
     {
-        var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tv-app", "gametranslator-androidtv_1.0.0.apk");
+        var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "tv-app", "altyazi-koprusu-tv.apk");
         if (File.Exists(path))
             Process.Start("explorer.exe", $"/select,\"{path}\"");
         else
@@ -716,13 +716,13 @@ public partial class OnboardingView : UserControl
     // ==========================================
     private void OnTestDesktopOverlay(object sender, RoutedEventArgs e)
     {
-        DesktopSubtitleOverlay.Display("GameTranslator: Masaüstü Ekran Altyazısı Başarıyla Çalışıyor! [HUD TESTİ]", 6000);
+        DesktopSubtitleOverlay.Display("Altyazı Köprüsü: Masaüstü Ekran Altyazısı Başarıyla Çalışıyor! [HUD TESTİ]", 6000);
     }
 
     private void OnTestTv(object sender, RoutedEventArgs e)
     {
         controller.SendTestSubtitle();
-        DesktopSubtitleOverlay.Display("GameTranslator: Canlı Türkçe Altyazı Testi Başarılı!", 6000);
+        DesktopSubtitleOverlay.Display("Altyazı Köprüsü: Canlı Türkçe Altyazı Testi Başarılı!", 6000);
         MessageBox.Show("Deneme yazısı gönderildi. TV'de görünüyorsa her şey hazır.", "Gönderildi", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 }

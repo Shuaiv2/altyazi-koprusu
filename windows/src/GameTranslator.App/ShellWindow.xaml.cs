@@ -22,6 +22,10 @@ public partial class ShellWindow : Window
         this.controller = controller;
         InitializeComponent();
         controller.PropertyChanged += OnChanged;
+        // Ctrl+Shift+L: TV altyazı düzeni (Mac: ⌘⇧L).
+        InputBindings.Add(new System.Windows.Input.KeyBinding(
+            new RelayCommand(() => TvLayoutEditorWindow.Show(controller, this)),
+            System.Windows.Input.Key.L, System.Windows.Input.ModifierKeys.Control | System.Windows.Input.ModifierKeys.Shift));
         // Bilgisayar uykudan uyanınca bağlantılar hemen yenilenir.
         SystemEvents.PowerModeChanged += OnPowerModeChanged;
         // Num 0, 1, 2, 3, 5, 8, 9 kısayolları yalnız çeviri sürerken tutulur.
@@ -86,4 +90,12 @@ public partial class ShellWindow : Window
     {
         if (e.Mode == PowerModes.Resume) Dispatcher.Invoke(controller.SystemResumed);
     }
+}
+
+/// <summary>Kısayol bağlaması için en küçük komut.</summary>
+internal sealed class RelayCommand(Action run) : System.Windows.Input.ICommand
+{
+    public event EventHandler? CanExecuteChanged { add { } remove { } }
+    public bool CanExecute(object? parameter) => true;
+    public void Execute(object? parameter) => run();
 }

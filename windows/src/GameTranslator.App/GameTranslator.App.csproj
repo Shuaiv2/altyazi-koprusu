@@ -7,8 +7,12 @@
     <UseWPF>true</UseWPF>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>GameTranslator</AssemblyName>
+    <!-- Kullanıcıya görünen ad (kod adları, ad alanları ve ayar anahtarları GameTranslator kalır). -->
+    <Product>Altyazı Köprüsü</Product>
+    <AssemblyTitle>Altyazı Köprüsü</AssemblyTitle>
+    <Description>Altyazı Köprüsü — PS5 oyun altyazılarını Türkçeye çevirip TV'ye gönderir. GameTranslator (AGPL-3.0) tabanlıdır.</Description>
     <RootNamespace>GameTranslator.App</RootNamespace>
-    <ApplicationIcon>Assets\GameTranslator.ico</ApplicationIcon>
+    <ApplicationIcon>Assets\AltyaziKoprusu.ico</ApplicationIcon>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <SelfContained>true</SelfContained>
     <Version>1.5.3</Version>
@@ -36,14 +40,39 @@
     <!-- Yaygın İngilizce sözcükler (SCOWL/ESDB, Kevin Atkinson; izin metni THIRD-PARTY-NOTICES.md'de). -->
     <EmbeddedResource Include="Assets\english-words.txt.gz" LogicalName="GameTranslator.App.Assets.english-words.txt.gz" />
     <!-- ShellWindow.xaml pencere simgesi olarak bunu okur; ApplicationIcon yalnız exe simgesidir. -->
-    <Resource Include="Assets\GameTranslator.ico" />
+    <Resource Include="Assets\AltyaziKoprusu.ico" />
     <!-- Inter (SIL Open Font License 1.1; Assets\Fonts\Inter-LICENSE): mobil uygulamayla aynı yazı tipi. -->
     <Resource Include="Assets\Fonts\*.ttf" />
   </ItemGroup>
 
-  <!-- TV uygulaması paketleri: dist/tv-app ve tv/packages altındaki paketleri tv-app/ klasörüne kopyalar -->
+  <!-- TV uygulaması paketleri: dist/tv-app altındaki paketler tv-app/ klasörüne kopyalanır. -->
   <ItemGroup>
-    <Content Include="..\..\..\dist\tv-app\*.ipk;..\..\..\dist\tv-app\*.wgt;..\..\..\dist\tv-app\*.apk;..\..\..\tv\packages\*.ipk;..\..\..\tv\packages\*.wgt;..\..\..\tv\packages\*.apk" Link="tv-app\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\..\dist\tv-app\*.ipk;..\..\..\dist\tv-app\*.wgt;..\..\..\dist\tv-app\*.apk" Link="tv-app\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- Altyazı Köprüsü Android TV uygulaması (paket com.altyazikoprusu.tv): tv/android sürüm derlemesi varsa kopyalanır. -->
+    <Content Include="..\..\..\tv\android\app\build\outputs\apk\release\app-release.apk" Link="tv-app\altyazi-koprusu-tv.apk" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('..\..\..\tv\android\app\build\outputs\apk\release\app-release.apk')" />
+  </ItemGroup>
+
+  <!-- APK adında sürüm yok; sürüm tv/android/app/build.gradle'daki versionName'den okunup yanındaki .version dosyasına yazılır. -->
+  <Target Name="TvApkVersionFile" BeforeTargets="AssignTargetPaths" Condition="Exists('..\..\..\tv\android\app\build\outputs\apk\release\app-release.apk') And Exists('..\..\..\tv\android\app\build.gradle')">
+    <PropertyGroup>
+      <_GradleText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\..\..\..\tv\android\app\build.gradle'))</_GradleText>
+      <_TvApkVersion>$([System.Text.RegularExpressions.Regex]::Match($(_GradleText), "versionName\s+'([^']+)'").Groups[1].Value)</_TvApkVersion>
+      <_TvApkVersionFile>$(IntermediateOutputPath)altyazi-koprusu-tv.version</_TvApkVersionFile>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_TvApkVersionFile)" Lines="$(_TvApkVersion)" Overwrite="true" Condition="'$(_TvApkVersion)' != ''" />
+    <ItemGroup Condition="'$(_TvApkVersion)' != ''">
+      <Content Include="$(_TvApkVersionFile)" Link="tv-app\altyazi-koprusu-tv.version" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+  <!--
+    TV altyazı düzenleyicisi (Mac ile ortak sayfa): tv/editor/* ve tv/editor/FILES.txt'teki dosyalar (tv/ altına göre)
+    çıktıda tv-web/ altına kopyalanır; editor.html "../webos/..." ile bu dosyalara göreli bakar. Dosyalar taşınmaz.
+  -->
+  <ItemGroup>
+    <Content Include="..\..\..\tv\editor\**\*" Exclude="..\..\..\tv\editor\FILES.txt" Link="tv-web\editor\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\..\tv\webos\subtitle-settings.js" Link="tv-web\webos\subtitle-settings.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\..\tv\webos\subtitle-layout.js" Link="tv-web\webos\subtitle-layout.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- PS5 Otomatik Eşleştirme Yardımcıları (Node.js & playactor betiği) -->

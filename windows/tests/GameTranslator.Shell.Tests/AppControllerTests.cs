@@ -102,6 +102,8 @@ internal sealed class FakeServices : IAppServices
     public IDubbingModel? Dubbing { get; set; }
     public IDubbingModel? FastDubbing { get; set; }
     public FakeTranslation Translation { get; } = new();
+    public ITextTranslator? OnlineFallback { get; set; }
+    public ITextTranslator? MakeOnlineFallbackTranslator(string source, string target) => OnlineFallback;
     public IFirewall? Firewall { get; set; }
     ITranslationModel IAppServices.Translation => Translation;
     public OnlineKeyCheck KeyCheck { get; set; } = new(OnlineKeyState.Valid, 10, 500_000);
@@ -520,6 +522,45 @@ public class AppControllerRunTests
         Assert.False(controller.Settings.OnlineTranslation);
         Assert.Equal(TranslatorStatus.NeedsDownload, controller.TranslatorStatus);
         controller.Dispose();
+    }
+
+    /// Yerel model yokken ve yedek kapalıyken çeviri yok: durum "indirin" der, sağlayıcı adı bunu belirtir, Google'a gidilmez.
+    [Fact]
+    public async Task MissingLocalModelWithoutFallbackIsReportedHonestly()
+    {
+        var services = new FakeServices { OnlineFallback = new FakeTranslation().Create("en", "tr") };
+        services.Translation.Installed = false;
+        var (controller, _, _) = Ready(services);
+        await controller.StartAsync();
+        Assert.False(controller.Settings.AllowOnlineFallback);
+        Assert.Equal(TranslatorStatus.NeedsDownload, controller.TranslatorStatus);
+        Assert.Contains("model yüklü değil", controller.ProviderLabel);
+        Assert.Contains("Yerel çeviri modeli yüklü değil", controller.TranslatorStatusText);
+        Assert.False(controller.ModelInstalled);
+        controller.Dispose();
+    }
+
+    /// Kullanıcı yedeğe izin verince durum hazır olur ve sağlayıcı adı Google'ı açıkça yazar.
+    [Fact]
+    public async Task OptInFallbackNamesGoogleAsProvider()
+    {
+        var services = new FakeServices { OnlineFallback = new FakeTranslation().Create("en", "tr") };
+        services.Translation.Installed = false;
+        var (controller, _, _) = Ready(services);
+        await controller.StartAsync();
+        controller.Settings = controller.Settings with { AllowOnlineFallback = true };
+        Assert.Equal(TranslatorStatus.Ready, controller.TranslatorStatus);
+        Assert.Equal("Google ücretsiz (yedek)", controller.ProviderLabel);
+        controller.Dispose();
+    }
+
+    /// Model kuruluysa sağlayıcı yerel Marian'dır; "yalnızca altyazı" varsayılan olarak açıktır.
+    [Fact]
+    public void InstalledModelIsLocalAndSubtitleOnlyDefaultsOn()
+    {
+        Assert.Equal("Yerel (Marian)", AppController.ProviderLabelFor(new UserSettings(), true, false, false));
+        Assert.True(new UserSettings().SubtitleOnly);
+        Assert.False(new UserSettings().AllowOnlineFallback);
     }
 
     /// Windows'ta oyun dilinin OCR paketi yoksa ana ekran bunu söyler.

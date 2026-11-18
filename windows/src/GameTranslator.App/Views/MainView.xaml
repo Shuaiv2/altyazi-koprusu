@@ -35,7 +35,7 @@
                 </Grid>
 
                 <!-- Alt: hakkında -->
-                <Button x:Name="AboutButton" DockPanel.Dock="Bottom" Content="GameTranslator Hakkında" Style="{StaticResource PillButton}"
+                <Button x:Name="AboutButton" DockPanel.Dock="Bottom" Content="Altyazı Köprüsü Hakkında" Style="{StaticResource PillButton}"
                         HorizontalAlignment="Center" Margin="0,12,8,0" Click="OnAbout" />
 
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -80,7 +80,11 @@
                                             <TextBlock x:Name="TvStatusLabel" Text="{Binding TvStatusText}" FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" />
                                         </StackPanel>
                                     </StackPanel>
-                                    <Button x:Name="TvActionButton" Grid.Column="2" Content="Ayarla" Style="{StaticResource PillButton}" VerticalAlignment="Center" Click="OnTvActionButton" />
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                        <Button x:Name="TvLayoutButton" Content="Altyazı Düzeni" Style="{StaticResource PillButton}" Margin="0,0,6,0" Click="OnTvLayoutEditor"
+                                                ToolTip="TV'deki altyazının yerini ve boyutunu uzaktan ayarla (Ctrl+Shift+L)" />
+                                        <Button x:Name="TvActionButton" Content="Ayarla" Style="{StaticResource PillButton}" Click="OnTvActionButton" />
+                                    </StackPanel>
                                 </Grid>
                                 <Rectangle Height="1" Fill="{DynamicResource hairlineBrush}" Margin="41,0,0,0" />
                                 <Grid Margin="0,9">
@@ -499,6 +503,7 @@
                             <!-- Anahtarlar ve deneme düğmeleri -->
                             <Border Style="{StaticResource Glass}" Padding="16,9" Margin="0,0,0,10">
                                 <WrapPanel>
+                                    <CheckBox x:Name="SubtitleOnlyCheck" Content="Yalnızca oyun altyazısını çevir" Checked="OnSubtitleOnly" Unchecked="OnSubtitleOnly" Margin="0,5,22,5" ToolTip="Tabela, plaka, HUD sayıları ve tuş ipuçları (Press R2…) çevrilmez." />
                                     <CheckBox x:Name="DesktopOverlayCheck" Content="PC Ekranında Altyazı (Şeffaf Katman)" Checked="OnDesktopOverlayToggle" Unchecked="OnDesktopOverlayToggle" Margin="0,5,22,5" />
                                     <CheckBox x:Name="BoldCheck" Content="Kalın (Bold)" Checked="OnBold" Unchecked="OnBold" Margin="0,5,22,5" />
                                     <CheckBox x:Name="SpeakerColorCheck" Content="Konuşmacı adı renkli" Checked="OnSpeakerColor" Unchecked="OnSpeakerColor" Margin="0,5,22,5" ToolTip="Konuşan kişinin adı (ör. MARKOS:) çevirinin geri kalanından farklı renkte gösterilir." />
@@ -581,7 +586,7 @@
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <Button Grid.Column="0" Content="Paketleri Tara ve Güncelle" Click="OnScanPatchesClick" Style="{StaticResource PrimaryButton}" Padding="14,6" FontSize="13" FontWeight="SemiBold" Margin="0,0,8,0" ToolTip="Hem yerel diskteki paketleri (%LOCALAPPDATA%\GameTranslator\packs) hem de resmi depodaki en güncel paketleri otomatik tarar ve eşler" />
+                                        <Button Grid.Column="0" Content="Paketleri Tara ve Güncelle" Click="OnScanPatchesClick" Style="{StaticResource PrimaryButton}" Padding="14,6" FontSize="13" FontWeight="SemiBold" Margin="0,0,8,0" ToolTip="Hem yerel diskteki paketleri (%LOCALAPPDATA%\Altyazı Köprüsü\packs) hem de resmi depodaki en güncel paketleri otomatik tarar ve eşler" />
                     <Button Grid.Column="1" Content="Yama Yükle (.json, .srt)" Click="OnImportPatchClick" Style="{StaticResource PillButton}" FontWeight="SemiBold" ToolTip="Kendi hazırladığınız veya indirdiğiniz özel yama dosyasını içeri aktarın" />
                                     </Grid>
 
@@ -598,7 +603,7 @@
                                 <StackPanel>
                                     <Grid Margin="0,0,0,6">
                                         <RadioButton x:Name="RadioModelDirectMl" GroupName="TranslationModelGroup" Checked="OnModelSelected"
-                                                     Content="Donanım Hızlandırmalı Yerel Yapay Zeka (DirectML)" FontWeight="Bold" FontSize="13" Foreground="White" VerticalAlignment="Center" IsChecked="True" Cursor="Hand" />
+                                                     Content="Yerel çeviri (Marian OPUS-MT · DirectML / CPU)" FontWeight="Bold" FontSize="13" Foreground="White" VerticalAlignment="Center" IsChecked="True" Cursor="Hand" />
                                         <Border x:Name="BadgeDirectMl" HorizontalAlignment="Right" Background="{DynamicResource successSoftBrush}" CornerRadius="10" Padding="8,2">
                                             <StackPanel Orientation="Horizontal">
                                                 <Ellipse Width="5" Height="5" Fill="{DynamicResource successBrush}" Margin="0,0,4,0" VerticalAlignment="Center" />
@@ -606,8 +611,19 @@
                                             </StackPanel>
                                         </Border>
                                     </Grid>
-                                    <TextBlock Text="Bilgisayarınızın ekran kartını (DirectML) ve CPU'sunu kullanarak tamamen çevrimdışı, sıfır gecikmeli çeviri yapar. Kota ve internet gerektirmez."
-                                               FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" Margin="22,0,0,0" />
+                                    <TextBlock Text="Çeviri bilgisayarınızda yapılır; metin internete çıkmaz. Model (yaklaşık 530 MB) bir kez indirilir. İndirilmediyse çeviri yapılmaz ve TV'ye hiçbir şey gönderilmez."
+                                               FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" Margin="22,0,0,6" />
+                                    <Grid Margin="22,0,0,6">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock x:Name="LocalModelStatus" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{DynamicResource warningBrush}" />
+                                        <Button x:Name="LocalModelDownloadButton" Grid.Column="1" Content="Modeli indir" Click="OnDownloadLocalModel" Style="{StaticResource PillButton}" FontWeight="Bold" Margin="8,0,0,0" />
+                                    </Grid>
+                                    <CheckBox x:Name="OnlineFallbackCheck" Content="İnternet yedeğine izin ver (Google ücretsiz)" Checked="OnOnlineFallback" Unchecked="OnOnlineFallback" Margin="22,2,0,2" Cursor="Hand" />
+                                    <TextBlock Text="Açıkken yerel model yoksa metin Google'ın resmi olmayan ücretsiz uç noktasına gönderilir (sağlayıcı adı TV'de “Google ücretsiz (yedek)” görünür). Kapalıyken metin bilgisayardan çıkmaz."
+                                               FontSize="11" Foreground="{DynamicResource textTertiaryBrush}" TextWrapping="Wrap" Margin="22,0,0,0" />
                                 </StackPanel>
                             </Border>
 
@@ -735,7 +751,7 @@
                                     <Grid Margin="0,0,0,6">
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <TextBlock Text="{x:Static c:Glyphs.Tv}" Style="{StaticResource GlyphText}" FontSize="15" Foreground="{DynamicResource successBrush}" Margin="0,0,6,0" VerticalAlignment="Center" />
-                                            <TextBlock Text="Akıllı TV &amp; GameTranslator" FontWeight="SemiBold" FontSize="13" Foreground="White" VerticalAlignment="Center" />
+                                            <TextBlock Text="Akıllı TV &amp; Altyazı Köprüsü" FontWeight="SemiBold" FontSize="13" Foreground="White" VerticalAlignment="Center" />
                                         </StackPanel>
                                         <TextBlock Text="Port 8787 (SSE)" HorizontalAlignment="Right" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource textTertiaryBrush}" VerticalAlignment="Center" />
                                     </Grid>
@@ -796,7 +812,7 @@
                                     </Border>
                                     <StackPanel Grid.Column="1">
                                         <TextBlock Text="TV Uygulaması" FontWeight="SemiBold" FontSize="13" Foreground="White" Margin="0,0,0,2" />
-                                        <TextBlock Text="TV'nizde GameTranslator uygulamasını açın. Bilgisayara aynı Wi-Fi üzerinden otomatik olarak bağlanır." FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" />
+                                        <TextBlock Text="TV'nizde Altyazı Köprüsü uygulamasını açın. Bilgisayara aynı Wi-Fi üzerinden otomatik olarak bağlanır." FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Grid>
                             </Border>
@@ -869,7 +885,7 @@
                                 <ImageBrush ImageSource="/Assets/logo.png" Stretch="UniformToFill" />
                             </Border.Background>
                         </Border>
-                        <TextBlock Text="GameTranslator" Style="{StaticResource LargeTitleText}" FontSize="24" VerticalAlignment="Center" />
+                        <TextBlock Text="Altyazı Köprüsü" Style="{StaticResource LargeTitleText}" FontSize="24" VerticalAlignment="Center" />
                     </StackPanel>
                     <Button Style="{StaticResource IconButton}" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnSettingsButton" ToolTip="Ayarlar" AutomationProperties.Name="Ayarlar">
                         <Border Width="36" Height="36" CornerRadius="18" Background="{DynamicResource cardStrongBrush}">
@@ -1015,7 +1031,7 @@
                             <Grid Margin="0,8">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                 <Border Width="24" Height="24" CornerRadius="12" Background="{DynamicResource cardStrongBrush}"><TextBlock Text="3" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
-                                <TextBlock Grid.Column="1" Text="TV'de GameTranslator'ı aç; çeviri oyunun üstünde görünür." FontSize="14" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                <TextBlock Grid.Column="1" Text="TV'de Altyazı Köprüsü'nü aç; çeviri oyunun üstünde görünür." FontSize="14" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0" />
                             </Grid>
                         </StackPanel>
                     </Border>

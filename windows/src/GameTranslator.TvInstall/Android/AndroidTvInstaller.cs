@@ -15,7 +15,13 @@ namespace GameTranslator.TvInstall.Android;
 public sealed partial class AndroidTvInstaller
 {
     public const int DefaultPort = 5555;
-    public const string PackageName = "com.gametranslator.tv";
+    public const string PackageName = "com.altyazikoprusu.tv";
+    /// <summary>
+    /// Etkinlik sınıfı (Android manifestindeki ad alanı hâlâ com.gametranslator.tv): paket adından farklı olduğu için
+    /// <c>am start -n</c> tam adla verilir.
+    /// </summary>
+    public const string Activity = "com.gametranslator.tv.MainActivity";
+    internal const string Component = PackageName + "/" + Activity;
 
     private readonly string host;
     private readonly int port;
@@ -156,7 +162,7 @@ public sealed partial class AndroidTvInstaller
     {
         await using var adb = await ConnectAsync(cancellationToken);
         var json = $"{{\"server\":\"{serverAddress}\"}}";
-        var cmd = $"shell:am start -n {PackageName}/.MainActivity --es params '{json}' --es server '{serverAddress}'";
+        var cmd = $"shell:am start -n {Component} --es params '{json}' --es server '{serverAddress}'";
         var result = await adb.RunAsync(cmd, cancellationToken: cancellationToken);
         if (result.Contains("Error"))
         {
@@ -165,7 +171,7 @@ public sealed partial class AndroidTvInstaller
             if (!string.IsNullOrEmpty(cur))
             {
                 await adb.RunAsync($"shell:cmd package install-existing --user {cur} {PackageName}", cancellationToken: cancellationToken);
-                result = await adb.RunAsync($"shell:am start --user {cur} -n {PackageName}/.MainActivity --es params '{json}' --es server '{serverAddress}'", cancellationToken: cancellationToken);
+                result = await adb.RunAsync($"shell:am start --user {cur} -n {Component} --es params '{json}' --es server '{serverAddress}'", cancellationToken: cancellationToken);
             }
         }
         return result;
@@ -176,7 +182,7 @@ public sealed partial class AndroidTvInstaller
         var extra = !string.IsNullOrEmpty(serverAddress)
             ? $" --es params '{{\"server\":\"{serverAddress}\"}}' --es server '{serverAddress}'"
             : "";
-        var result = await adb.RunAsync($"shell:am start -n {PackageName}/.MainActivity{extra}", cancellationToken: cancellationToken);
+        var result = await adb.RunAsync($"shell:am start -n {Component}{extra}", cancellationToken: cancellationToken);
         if (result.Contains("Error"))
         {
             await adb.RunAsync($"shell:cmd package install-existing {PackageName}", cancellationToken: cancellationToken);
@@ -184,7 +190,7 @@ public sealed partial class AndroidTvInstaller
             if (!string.IsNullOrEmpty(cur))
             {
                 await adb.RunAsync($"shell:cmd package install-existing --user {cur} {PackageName}", cancellationToken: cancellationToken);
-                result = await adb.RunAsync($"shell:am start --user {cur} -n {PackageName}/.MainActivity{extra}", cancellationToken: cancellationToken);
+                result = await adb.RunAsync($"shell:am start --user {cur} -n {Component}{extra}", cancellationToken: cancellationToken);
             }
         }
         return result;

@@ -18,10 +18,12 @@ namespace GameTranslator.Shell;
 /// başlatma/durdurma, PS5 ve TV durumları. Arayüz bu nesneye bağlanır; olaylar <c>post</c> ile
 /// arayüz iş parçacığına aktarılır.
 /// </summary>
-public sealed class AppController : INotifyPropertyChanged, IDisposable
+public sealed class AppController : INotifyPropertyChanged, IDisposable, ITvLayoutPort
 {
     public const string TvAppId = "com.gametranslator.tv";
     public const int DefaultServerPort = 8787;
+    /// <summary>Bir okuma geçişi bundan uzun sürerse takılmış sayılır: kapı sıfırlanır, hat yeniden kurulur, günlüğe yazılır.</summary>
+    public const int OcrWatchdogMs = 3000;
 
     private readonly IAppServices services;
     private readonly IAppStore store;
@@ -55,7 +57,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
     private string? modelError;
     private Task? modelDownload;
 
-    private SubtitleServer server = new(DefaultServerPort);
+    private SubtitleServer server;
     private bool serverStarted;
     private IStreamSession? session;
     private IKeeper? keeper;
@@ -67,7 +69,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
     /// <summary>Oyundaki altyazının son görüldüğü yer; deneme altyazısı TV'de oraya yerleşir.</summary>
     private TextBox? lastSubtitleBox;
     /// <summary>Hatta aynı anda tek kare girer; durdurma ve yeni hat kapıyı sıfırlar, takılan okuma hattı yeniden kurdurur (CouchSubs 7175247).</summary>
-    private readonly FrameGate frameGate = new();
+    private readonly FrameGate frameGate = new(OcrWatchdogMs);
     private Dubber? dubber;
     private string? updateVersion;
     private bool updating;
@@ -94,7 +96,9 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
         history = services.HistoryFile is { } historyFile ? SubtitleHistory.Load(historyFile) : new SubtitleHistory();
         var ready = accountId is not null && console is not null && tv is not null && store.Load<string>(StoreKeys.TvKey) is not null;
         step = OnboardingStep.Done;
+        server = new SubtitleServer(DefaultServerPort, layoutStorePath: services.LayoutStoreFile);
         server.ClientsChanged += OnClientsChanged;
+        server.TvStatusChanged += OnTvLayoutStatusChanged;
         _ = Task.Run(async () =>
         {
             try { await StartServerAsync(); } catch { }
@@ -221,7 +225,11 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
     }
     public string LastSource { get => lastSource; private set => Set(ref lastSource, value); }
     public string LastTranslation { get => lastTranslation; private set => Set(ref lastTranslation, value); }
-    public TranslatorStatus TranslatorStatus { get => translatorStatus; private set => Set(ref translatorStatus, value); }
+    public TranslatorStatus TranslatorStatus
+    {
+        get => translatorStatus;
+        private set { if (Set(ref translatorStatus, value)) Changed(nameof(TranslatorStatusText)); }
+    }
     /// <summary>Bilgisayarda yazı tanıma dili yok; ayarlardan eklenmesi gerekir.</summary>
     public bool OcrMissing { get => ocrMissing; private set => Set(ref ocrMissing, value); }
     /// <summary>Canlı altyazı çevirisi duraklatıldı (Num 0); ek bölge ve serbest alan çevirileri çalışmaya devam eder.</summary>
@@ -234,7 +242,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
     /// <summary>Bu oyun dilinden hedef dile çeviri modeli var mı (ayarlarda listelenecek diller).</summary>
     public bool SupportsLanguage(string source) => services.Translation.IsSupported(source, settings.TargetLanguage);
 
-    public bool ModelInstalled => true;
+    public bool ModelInstalled => services.Translation.IsInstalled(settings.SourceLanguage, settings.TargetLanguage);
     public bool ModelDownloading { get => modelDownloading; private set => Set(ref modelDownloading, value); }
     public double ModelProgress { get => modelProgress; private set => Set(ref modelProgress, value); }
     public string? ModelError { get => modelError; private set => Set(ref modelError, value); }
@@ -250,12 +258,14 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
             if (old.SharePool != value.SharePool) services.Pool?.SetEnabled(value.SharePool);
             server.SendStyle(value.Style);
             if (old.Dubbing != value.Dubbing) DubbingSettingsChanged(old.Dubbing);
-            if (isRunning && (old.SourceLanguage != value.SourceLanguage || old.TargetLanguage != value.TargetLanguage
-                              || old.OnlineTranslation != value.OnlineTranslation || old.Engine != value.Engine))
+            if (old.SourceLanguage != value.SourceLanguage || old.TargetLanguage != value.TargetLanguage
+                || old.OnlineTranslation != value.OnlineTranslation || old.Engine != value.Engine
+                || old.AllowOnlineFallback != value.AllowOnlineFallback)
             {
                 RefreshTranslatorStatus();
-                MakePipeline();
+                if (isRunning) MakePipeline();
             }
+            if (old.SubtitleOnly != value.SubtitleOnly && pipeline is { } live) live.SubtitleOnly = value.SubtitleOnly;
             if (isRunning && (old.VideoSource != value.VideoSource || old.DesktopWindowName != value.DesktopWindowName || old.ScreenIndex != value.ScreenIndex))
             {
                 RestartStream();
@@ -299,7 +309,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
     public async Task<string> InstallAndroidTvAppAsync(string host, Action<TvInstallEvent> onEvent)
     {
         var app = services.BundledApp(TvBrand.AndroidTv)
-                  ?? throw new FileNotFoundException("Android TV APK paketi (tv-app\\gametranslator-androidtv_1.0.0.apk) bulunamadı.");
+                  ?? throw new FileNotFoundException("Android TV APK paketi (tv-app\\altyazi-koprusu-tv.apk) bulunamadı.");
         var version = await services.InstallAndroidAppAsync(host, app, onEvent);
         var target = new LgTv("Android TV", host, TvBrand.AndroidTv);
         tv = target;
@@ -1068,6 +1078,8 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
             case SessionPhase.Connecting: return text["Connecting…"];
         }
         if (!running) return text["Not connected"];
+        // Yeniden deneme ilerlemesi gibi kullanıcıya hazır (Türkçe) metin taşıyan bağlantı kopması.
+        if (state.Reason is { Kind: DisconnectKind.Network, Detail: { Length: > 0 } ready }) return ready;
         return text[state.Reason?.Kind switch
         {
             DisconnectKind.ConsoleAsleep => "Turn on your PS5",
@@ -1197,7 +1209,13 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
             });
         };
         // Model bu arada inmiş olabilir; her çeviri sonucu durumu günceller.
-        built.TranslationResult += error => post(() => TranslatorStatus = error ?? TranslatorStatus.Ready);
+        built.TranslationResult += error => post(() =>
+        {
+            TranslatorStatus = error ?? TranslatorStatus.Ready;
+            PublishProvider();
+        });
+        built.SubtitleOnly = settings.SubtitleOnly;
+        server.Provider = ProviderLabel;
         built.SpeechReady += lines => post(() => Speak(lines));
         pipeline = built;
     }
@@ -1291,7 +1309,12 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
     {
         var translation = services.Translation;
         var (source, target) = (settings.SourceLanguage, settings.TargetLanguage);
-        return translation.Create(source, target);
+        var supported = translation.IsSupported(source, target);
+        if (supported && translation.IsInstalled(source, target)) return translation.Create(source, target);
+        if (!supported && !settings.AllowOnlineFallback) return new UnavailableTranslator(TranslatorStatus.Unsupported);
+        // Model kurulu değil: metin yalnız kullanıcı izin verdiyse çevrimiçi (Google ücretsiz) gider; yoksa çeviri yok.
+        if (settings.AllowOnlineFallback && services.MakeOnlineFallbackTranslator(source, target) is { } online) return online;
+        return new UnavailableTranslator(TranslatorStatus.NeedsDownload);
     }
 
     /// <summary>Kayıtlı bir Google Gemini anahtarı var mı.</summary>
@@ -1361,7 +1384,49 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
 
     private void RefreshTranslatorStatus()
     {
-        TranslatorStatus = TranslatorStatus.Ready;
+        var translation = services.Translation;
+        var (source, target) = (settings.SourceLanguage, settings.TargetLanguage);
+        TranslatorStatus = OnlineEngineActive ? TranslatorStatus.Ready
+            : translation.IsSupported(source, target) && translation.IsInstalled(source, target) ? TranslatorStatus.Ready
+            : settings.AllowOnlineFallback ? TranslatorStatus.Ready
+            : !translation.IsSupported(source, target) ? TranslatorStatus.Unsupported
+            : TranslatorStatus.NeedsDownload;
+        PublishProvider();
+    }
+
+    /// <summary>Gemini ya da DeepL anahtarla seçili ve kullanılabilir (yerel modele gerek kalmaz).</summary>
+    private bool OnlineEngineActive =>
+        (settings.Engine == TranslationEngine.Gemini && HasGeminiKey) ||
+        (settings.Engine == TranslationEngine.DeepL && HasDeepLKey) ||
+        OnlineTranslationActive;
+
+    /// <summary>
+    /// TV'ye ve ayarlara yazılan çeviri sağlayıcısı adı. Yerel model yoksa bunu açıkça söyler; Google yalnız Google olarak
+    /// adlandırılır.
+    /// </summary>
+    public string ProviderLabel => ProviderLabelFor(settings, ModelInstalled, HasGeminiKey, HasDeepLKey);
+
+    public static string ProviderLabelFor(UserSettings settings, bool modelInstalled, bool hasGeminiKey, bool hasDeepLKey)
+    {
+        if (settings.Engine == TranslationEngine.Gemini && hasGeminiKey) return "Gemini";
+        if (settings.Engine == TranslationEngine.DeepL && hasDeepLKey) return "DeepL";
+        if (modelInstalled) return "Yerel (Marian)";
+        return settings.AllowOnlineFallback ? "Google ücretsiz (yedek)" : "Yerel (Marian) — model yüklü değil";
+    }
+
+    /// <summary>Kullanıcıya gösterilen çeviri durumu (Türkçe); sorun yoksa boş.</summary>
+    public string TranslatorStatusText => TranslatorStatus switch
+    {
+        TranslatorStatus.NeedsDownload => "Yerel çeviri modeli yüklü değil — indirin ya da çevrimiçi yedeğe izin verin",
+        TranslatorStatus.Unsupported => "Bu dil çifti için yerel çeviri desteklenmiyor",
+        TranslatorStatus.EngineFailed => "Çeviri motoru başlatılamadı",
+        _ => "",
+    };
+
+    private void PublishProvider()
+    {
+        server.Provider = ProviderLabel;
+        Changed(nameof(ProviderLabel), nameof(TranslatorStatusText));
     }
 
     /// <summary>PS5'in adresi değişti: sonraki açılışlar yeni adresle başlasın.</summary>
@@ -1517,12 +1582,23 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable
         {
             // 8787 başka bir uygulamada; TV'ye adres her seferinde bildirildiği için herhangi bir boş port olur.
             server.ClientsChanged -= OnClientsChanged;
-            server = new SubtitleServer(0);
+            server.TvStatusChanged -= OnTvLayoutStatusChanged;
+            server = new SubtitleServer(0, layoutStorePath: services.LayoutStoreFile);
             server.ClientsChanged += OnClientsChanged;
+            server.TvStatusChanged += OnTvLayoutStatusChanged;
             ServerPort = await server.StartAsync();
         }
         serverStarted = true;
     }
+
+    // --- TV altyazı düzeni (uzaktan düzenleyici) ---
+
+    /// <summary>TV bağlantısı ya da TV'nin bildirdiği düzen değişti (iş parçacığı havuzundan gelir).</summary>
+    public event Action? TvLayoutStatusChanged;
+    private void OnTvLayoutStatusChanged() => TvLayoutStatusChanged?.Invoke();
+    bool ITvLayoutPort.TvConnected => server.TvConnected;
+    (string Json, DateTimeOffset? At)? ITvLayoutPort.LastTvLayout => server.LastTvLayout;
+    void ITvLayoutPort.SendLayout(string mode, string settingsJson) => server.SendLayout(mode, settingsJson);
 
     private void OnClientsChanged(int count) => post(() =>
     {

@@ -112,7 +112,7 @@
                             <TextBlock Text="{x:Static c:Glyphs.Controller}" Style="{StaticResource GlyphText}" FontSize="20" HorizontalAlignment="Center" Foreground="{DynamicResource accentTextBrush}" />
                         </Border>
                         <StackPanel VerticalAlignment="Center" MaxWidth="500">
-                            <TextBlock Text="GameTranslator'a hoş geldin" FontWeight="Bold" FontSize="18" Foreground="{DynamicResource textPrimaryBrush}" />
+                            <TextBlock Text="Altyazı Köprüsü'ne hoş geldin" FontWeight="Bold" FontSize="18" Foreground="{DynamicResource textPrimaryBrush}" />
                             <TextBlock Text="PS5 oyunlarındaki İngilizce altyazıları ekrandan okur ve TV'nde anında Türkçe gösterir." TextWrapping="Wrap" FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,2,0,0" />
                         </StackPanel>
                     </StackPanel>
@@ -407,7 +407,7 @@
                             <!-- Panel: Samsung Tizen TV -->
                             <StackPanel x:Name="TvDetailSamsung" Visibility="Collapsed">
                                 <TextBlock Text="Samsung TV" FontWeight="Bold" FontSize="13" Foreground="{DynamicResource accentTextBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="TV'nin adresini yaz, sonra TV'de GameTranslator'ı aç:" FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,0,0,8" />
+                                <TextBlock Text="TV'nin adresini yaz, sonra TV'de Altyazı Köprüsü'nü aç:" FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,0,0,8" />
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -500,7 +500,7 @@
                             <TextBlock Text="Nasıl kullanılır?" FontWeight="Bold" FontSize="15" Foreground="White" Margin="0,0,0,10" />
                             <TextBlock Text="1. Oyunda altyazıları aç." FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,0,0,6" />
                             <TextBlock Text="2. Ana ekrandaki büyük düğmeyle çeviriyi başlat." FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,0,0,6" />
-                            <TextBlock Text="3. TV'de GameTranslator'ı aç; çeviri oyunun üstünde görünür." FontSize="13" Foreground="{DynamicResource successBrush}" FontWeight="SemiBold" />
+                            <TextBlock Text="3. TV'de Altyazı Köprüsü'nü aç; çeviri oyunun üstünde görünür." FontSize="13" Foreground="{DynamicResource successBrush}" FontWeight="SemiBold" />
                         </StackPanel>
                     </Border>
 

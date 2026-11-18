@@ -68,14 +68,17 @@ public static class ChiakiLauncher
     /// Çeviri başladığında Chiaki'yi doğrudan konsola bağlanacak şekilde (stream modu) arka planda sessizce başlatır.
     /// Kullanıcıyı asla rahatsız etmez, penceresi arka planda şeffaf tutulur.
     /// </summary>
-    public static bool LaunchAndStream(string? host = null, string? consoleName = null)
+    /// <param name="windowSize">Yayın penceresinin istemci boyutu (varsayılan 1280x720); null ise pencereye dokunulmaz.</param>
+    public static bool LaunchAndStream(string? host = null, string? consoleName = null, (int Width, int Height)? windowSize = null)
     {
+        var size = windowSize ?? (1280, 720);
         try
         {
             // Zaten açık ve yayın yapan bir hedef pencere varsa arka planda tut
             var hWnd = WindowCaptureService.FindTargetWindow(out _);
             if (hWnd != IntPtr.Zero)
             {
+                WindowCaptureService.ResizeClient(hWnd, size.Item1, size.Item2);
                 WindowCaptureService.MakeInvisibleBackground(hWnd);
                 return true;
             }
@@ -126,6 +129,7 @@ public static class ChiakiLauncher
                     var win = WindowCaptureService.FindTargetWindow(out _);
                     if (win != IntPtr.Zero)
                     {
+                        WindowCaptureService.ResizeClient(win, size.Item1, size.Item2);
                         WindowCaptureService.MakeInvisibleBackground(win);
                         break;
                     }

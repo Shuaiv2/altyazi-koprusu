@@ -10,8 +10,9 @@ using GameTranslator.Core;
 namespace GameTranslator.Translation;
 
 /// <summary>
-/// Ücretsiz ve sıfır kurulum gerektiren Google GTX Çeviri Motoru.
-/// Hızlı bellek içi önbellekleme, çoklu yedek sunucu ve hız sınırlama korumasıyla kesintisiz Türkçe çeviri sağlar.
+/// Google'ın resmi olmayan ücretsiz çeviri uç noktası (Google ücretsiz). Metin bilgisayardan çıkıp Google'a gider;
+/// bu yüzden uygulama yalnız kullanıcı "İnternet yedeğine izin ver" dediğinde kullanır.
+/// translate.googleapis.com 429/403 verirse 10 dakika atlanır ve yalnız clients5 aynası kullanılır.
 /// </summary>
 public sealed class GoogleGtxTranslator : ITextTranslator
 {
@@ -20,14 +21,32 @@ public sealed class GoogleGtxTranslator : ITextTranslator
         Timeout = TimeSpan.FromSeconds(4)
     };
 
+    /// <summary>translate.googleapis.com 429/403 verince ne kadar süre atlanır.</summary>
+    public static readonly TimeSpan BlockDuration = TimeSpan.FromMinutes(10);
+    private static DateTime _blockedUntil = DateTime.MinValue;
+    private static readonly object BlockGate = new();
+
+    /// <summary>Ana uç nokta engelliyse kullanıcıya gösterilecek kısa not; yoksa null.</summary>
+    public static string? Notice { get; private set; }
+
+    internal static bool IsBlocked(DateTime now) { lock (BlockGate) return now < _blockedUntil; }
+    internal static void ResetBreaker() { lock (BlockGate) { _blockedUntil = DateTime.MinValue; Notice = null; } }
+
+    private readonly HttpClient _client;
+    private readonly Func<DateTime> _utcNow;
+
     private static readonly ConcurrentDictionary<string, string> Cache = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Regex PrefixRegex = new(@"^(?<prefix>(?:[-–—]+|>{1,3})\s*)", RegexOptions.Compiled);
 
     private readonly string _source;
     private readonly string _target;
 
-    public GoogleGtxTranslator(string source = "en", string target = "tr")
+    public GoogleGtxTranslator(string source = "en", string target = "tr") : this(source, target, SharedClient, null) { }
+
+    internal GoogleGtxTranslator(string source, string target, HttpClient client, Func<DateTime>? utcNow)
     {
+        _client = client;
+        _utcNow = utcNow ?? (() => DateTime.UtcNow);
         _source = string.IsNullOrWhiteSpace(source) ? "en" : source.ToLowerInvariant();
         _target = string.IsNullOrWhiteSpace(target) ? "tr" : target.ToLowerInvariant();
     }
@@ -56,22 +75,38 @@ public sealed class GoogleGtxTranslator : ITextTranslator
             return prefix + cached;
         }
 
-        // 2. Çoklu Google uç noktalarını dene
-        var endpoints = new[]
+        // 2. Google uç noktalarını dene; ana uç nokta engelliyse (429/403) yalnız clients5 aynası kullanılır.
+        var q = Uri.EscapeDataString(trimmed);
+        var endpoints = new List<string>();
+        if (!IsBlocked(_utcNow()))
         {
-            $"https://translate.googleapis.com/translate_a/single?client=gtx&sl={_source}&tl={_target}&dt=t&q={Uri.EscapeDataString(trimmed)}",
-            $"https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl={_source}&tl={_target}&dt=t&q={Uri.EscapeDataString(trimmed)}",
-            $"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl={_source}&tl={_target}&q={Uri.EscapeDataString(trimmed)}"
-        };
+            endpoints.Add($"https://translate.googleapis.com/translate_a/single?client=gtx&sl={_source}&tl={_target}&dt=t&q={q}");
+            endpoints.Add($"https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl={_source}&tl={_target}&dt=t&q={q}");
+        }
+        endpoints.Add($"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl={_source}&tl={_target}&q={q}");
 
+        var skipMain = false;
         foreach (var url in endpoints)
         {
+            var isMain = url.StartsWith("https://translate.googleapis.com/", StringComparison.Ordinal);
+            if (isMain && skipMain) continue;
             try
             {
                 using var req = new HttpRequestMessage(HttpMethod.Get, url);
                 req.Headers.UserAgent.ParseAdd("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36");
 
-                using var resp = await SharedClient.SendAsync(req, cancellationToken);
+                using var resp = await _client.SendAsync(req, cancellationToken);
+                if (resp.StatusCode is System.Net.HttpStatusCode.TooManyRequests or System.Net.HttpStatusCode.Forbidden && isMain)
+                {
+                    lock (BlockGate)
+                    {
+                        _blockedUntil = _utcNow() + BlockDuration;
+                        Notice = $"Google ücretsiz uç nokta HTTP {(int)resp.StatusCode} verdi; 10 dk atlanacak, yedek ayna kullanılacak.";
+                    }
+                    // İkinci translate.googleapis.com adresini de denemeden aynaya geç.
+                    skipMain = true;
+                    continue;
+                }
                 if (!resp.IsSuccessStatusCode) continue;
 
                 var json = await resp.Content.ReadAsStringAsync(cancellationToken);

@@ -19,4 +19,13 @@ public class VersionsTests
         Assert.Equal("0.7.0", Versions.OfBundledFile("gametranslator-samsung_0.7.0.wgt"));
         Assert.Null(Versions.OfBundledFile("gametranslator.apk"));
     }
+
+    [Fact]
+    public void AndroidPackageAndActivityAreTheAltyaziKoprusuOnes()
+    {
+        Assert.Equal("com.altyazikoprusu.tv", Android.AndroidTvInstaller.PackageName);
+        Assert.Equal("com.altyazikoprusu.tv/com.gametranslator.tv.MainActivity", Android.AndroidTvInstaller.Component);
+        // Sürümsüz dosya adı sürüm vermez (sürüm .version dosyasından okunur).
+        Assert.Null(Versions.OfBundledFile("altyazi-koprusu-tv.apk"));
+    }
 }

@@ -25,7 +25,35 @@ public sealed class Localizer
     public string Language => language;
 
     public string this[string key] =>
-        Catalog.Value.TryGetValue(key, out var values) && values.TryGetValue(language, out var value) ? value : key;
+        Brand(Catalog.Value.TryGetValue(key, out var values) && values.TryGetValue(language, out var value) ? value : key, language);
+
+    /// <summary>Kullanıcıya görünen ürün adı.</summary>
+    public const string ProductName = "Altyazı Köprüsü";
+
+    /// <summary>
+    /// Ortak (Mac ile paylaşılan) metin kataloğundaki eski "GameTranslator" adı ürün adıyla değiştirilir; anahtarlar
+    /// değişmez. Türkçe ekler ünlü uyumuna göre düzeltilir ("GameTranslator'ı" → "Altyazı Köprüsü'nü"). Dosya adları
+    /// ("GameTranslator-windows-x64.zip") ve ad alanları korunur.
+    /// </summary>
+    internal static string Brand(string value, string language)
+    {
+        if (!value.Contains("GameTranslator", StringComparison.Ordinal)) return value;
+        return System.Text.RegularExpressions.Regex.Replace(value, @"GameTranslator('[\p{L}]+)?(?![\w.\-])", match =>
+        {
+            var suffix = match.Groups[1].Value;
+            if (suffix.Length == 0 || language != "tr") return ProductName + suffix;
+            return ProductName + suffix switch
+            {
+                "'ı" or "'i" => "'nü",
+                "'a" or "'e" => "'ne",
+                "'da" or "'de" => "'nde",
+                "'dan" or "'den" => "'nden",
+                "'ın" or "'in" or "'nın" or "'nin" => "'nün",
+                "'la" or "'le" => "'yle",
+                _ => suffix,
+            };
+        });
+    }
 
     /// <summary>xcstrings biçim belirteçlerini (%@, %lld, %1$@ …) verilen değerlerle doldurur.</summary>
     public string Format(string key, params object[] args) => Fill(this[key], args);

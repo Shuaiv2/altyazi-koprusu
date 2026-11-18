@@ -244,25 +244,28 @@ public sealed class LiveServices : IAppServices
     private static string DataDirectory(string name) =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GameTranslator", name);
 
+    /// <summary>Uygulamayla gelen Android TV paketi; sürümü yanındaki .version dosyasından (APK adında sürüm yok) okunur.</summary>
+    public const string AndroidApkName = "altyazi-koprusu-tv.apk";
+
     public BundledTvApp? BundledApp(TvBrand brand)
     {
         var pattern = brand switch { TvBrand.Samsung => "*.wgt", TvBrand.AndroidTv => "*.apk", _ => null };
         if (pattern is null) return null;
         var folder = Path.Combine(AppContext.BaseDirectory, "tv-app");
+        if (!Directory.Exists(folder)) return null;
         string? file = null;
-        if (Directory.Exists(folder))
+        if (brand == TvBrand.AndroidTv && File.Exists(Path.Combine(folder, AndroidApkName))) file = Path.Combine(folder, AndroidApkName);
+        file ??= Directory.EnumerateFiles(folder, pattern).FirstOrDefault();
+        if (file is null) return null;
+        string? version = null;
+        var sidecar = Path.ChangeExtension(file, ".version");
+        if (File.Exists(sidecar))
         {
-            file = Directory.EnumerateFiles(folder, pattern).FirstOrDefault();
+            try { version = File.ReadAllText(sidecar).Trim(); }
+            catch (IOException) { }
         }
-        if (file is null)
-        {
-            var fallback = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "tv", "packages");
-            if (Directory.Exists(fallback))
-            {
-                file = Directory.EnumerateFiles(fallback, pattern).FirstOrDefault();
-            }
-        }
-        return file is not null && (TvInstall.Versions.OfBundledFile(file) ?? "1.0.0") is { } version ? new BundledTvApp(file, version) : null;
+        version ??= TvInstall.Versions.OfBundledFile(file) ?? "1.0.0";
+        return new BundledTvApp(file, version);
     }
 
     public Task<bool> IsSamsungDevModeOnAsync(string host) => SamsungTvInstaller.IsDevModeOnAsync(host);
@@ -568,33 +571,34 @@ public sealed class LiveServices : IAppServices
         public void Reconnect() => keeper.Reconnect();
     }
 
-    /// <summary>OPUS-MT modelleri ve Google GTX çeviri motoru hibriti.</summary>
+    /// <summary>OPUS-MT (Marian) yerel çeviri modeli. Model yoksa Google'a SESSİZCE düşmez; bkz. <see cref="MakeOnlineFallbackTranslator"/>.</summary>
     private sealed class MarianModel : ITranslationModel
     {
         private readonly ModelStore englishTurkish = new(Path.Combine(AppPaths.Models, "en-tr"));
         private MarianTranslator? translator;
 
-        public bool IsSupported(string source, string target) => true;
+        public bool IsSupported(string source, string target) => source == "en" && target == "tr";
 
-        // Yerel Marian modeli indirilmemiş olsa bile dahili Google GTX motoru sıfır kurulumla hazırdır.
-        public bool IsInstalled(string source, string target) => true;
+        // Gerçek dosyalar kontrol edilir (ModelStore.Files).
+        public bool IsInstalled(string source, string target) => englishTurkish.IsInstalled;
 
         public Task DownloadAsync(string source, string target, IProgress<double> progress, CancellationToken cancellationToken) =>
             englishTurkish.DownloadAsync(progress, cancellationToken);
 
-        // Yerel model indirilmişse Marian motorunu kullan; indirilmemişse anında Google GTX motoruna dön.
         public ITextTranslator Create(string source, string target)
         {
-            if (englishTurkish.IsInstalled)
-            {
-                if (translator is not null) return translator;
-                translator = new MarianTranslator(englishTurkish.InstallDirectory);
-                _ = translator.WarmUpAsync();
-                return translator;
-            }
-            return new GoogleGtxTranslator(source, target);
+            if (translator is not null) return translator;
+            translator = new MarianTranslator(englishTurkish.InstallDirectory);
+            _ = translator.WarmUpAsync();
+            return translator;
         }
     }
+
+    /// <summary>Yalnız kullanıcı "İnternet yedeğine izin ver" dediğinde: Google ücretsiz (resmi olmayan) uç nokta.</summary>
+    public ITextTranslator? MakeOnlineFallbackTranslator(string source, string target) => new GoogleGtxTranslator(source, target);
+
+    public string? LayoutStoreFile { get; } = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AltyaziKoprusu", "tv-layout.json");
 }
 
 /// <summary>Şifreli depo (hesap, PS5, TV anahtarları).</summary>

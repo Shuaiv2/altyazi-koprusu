@@ -16,6 +16,17 @@ public class LocalizerTests
     }
 
     [Fact]
+    public void ProductNameIsAltyaziKoprusuEverywhere()
+    {
+        Assert.Equal("Altyazı Köprüsü Hakkında", Localizer.ForLanguage("tr")["About GameTranslator"]);
+        Assert.Equal("About Altyazı Köprüsü", Localizer.ForLanguage("en")["About GameTranslator"]);
+        Assert.Equal("Altyazı Köprüsü'nü aç", Localizer.Brand("GameTranslator'ı aç", "tr"));
+        Assert.Equal("Altyazı Köprüsü'ne", Localizer.Brand("GameTranslator'a", "tr"));
+        // Dosya adları değişmez.
+        Assert.Equal("GameTranslator-windows-x64.zip", Localizer.Brand("GameTranslator-windows-x64.zip", "tr"));
+    }
+
+    [Fact]
     public void UnknownLanguageFallsBackToEnglish() =>
         Assert.Equal("Start translating", Localizer.ForLanguage("de")["Start translating"]);
 

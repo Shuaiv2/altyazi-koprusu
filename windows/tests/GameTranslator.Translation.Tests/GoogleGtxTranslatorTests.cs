@@ -17,4 +17,54 @@ public class GoogleGtxTranslatorTests
     [InlineData("There is a\n- bakery up the street!", "There is a bakery up the street!")]
     public void WrappedLinesBecomeOneSentence(string text, string expected) =>
         Assert.Equal(expected, GoogleGtxTranslator.JoinWrappedLines(text));
+
+    private sealed class Handler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
+    {
+        public List<string> Hosts { get; } = [];
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Hosts.Add(request.RequestUri!.Host);
+            return Task.FromResult(respond(request));
+        }
+    }
+
+    private static HttpResponseMessage Json(string body) => new(System.Net.HttpStatusCode.OK) { Content = new StringContent(body) };
+
+    /// 429 veren ana uç nokta 10 dakika atlanır; çeviri clients5 aynasından gelir.
+    [Fact]
+    public async Task RateLimitedMainEndpointIsSkippedForTenMinutes()
+    {
+        GoogleGtxTranslator.ResetBreaker();
+        var now = new DateTime(2026, 1, 1, 12, 0, 0, DateTimeKind.Utc);
+        var handler = new Handler(request => request.RequestUri!.Host == "translate.googleapis.com"
+            ? new HttpResponseMessage(System.Net.HttpStatusCode.TooManyRequests)
+            : Json("""["Merhaba dünya"]"""));
+        var translator = new GoogleGtxTranslator("en", "tr", new HttpClient(handler), () => now);
+
+        Assert.Equal("Merhaba dünya", await translator.TranslateAsync("Hello breaker one"));
+        Assert.Equal(["translate.googleapis.com", "clients5.google.com"], handler.Hosts);
+        Assert.NotNull(GoogleGtxTranslator.Notice);
+
+        handler.Hosts.Clear();
+        Assert.Equal("Merhaba dünya", await translator.TranslateAsync("Hello breaker two"));
+        Assert.Equal(["clients5.google.com"], handler.Hosts);
+
+        // 10 dakika sonra ana uç nokta yeniden denenir.
+        now += GoogleGtxTranslator.BlockDuration + TimeSpan.FromSeconds(1);
+        handler.Hosts.Clear();
+        await translator.TranslateAsync("Hello breaker three");
+        Assert.Equal("translate.googleapis.com", handler.Hosts[0]);
+        GoogleGtxTranslator.ResetBreaker();
+    }
+
+    /// Hiçbir uç nokta çeviri vermezse İngilizce Türkçe diye dönmez, hata fırlar.
+    [Fact]
+    public async Task FailureThrowsInsteadOfEchoingEnglish()
+    {
+        GoogleGtxTranslator.ResetBreaker();
+        var handler = new Handler(_ => new HttpResponseMessage(System.Net.HttpStatusCode.InternalServerError));
+        var translator = new GoogleGtxTranslator("en", "tr", new HttpClient(handler), null);
+        await Assert.ThrowsAsync<GameTranslator.Core.TranslatorException>(() => translator.TranslateAsync("Hello failing"));
+        GoogleGtxTranslator.ResetBreaker();
+    }
 }

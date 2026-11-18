@@ -129,6 +129,8 @@ public partial class MainView : UserControl
         BoldCheck.IsChecked = s.Style.Bold;
         SpeakerColorCheck.IsChecked = s.Style.SpeakerColor;
         SharePoolCheck.IsChecked = s.SharePool;
+        if (SubtitleOnlyCheck != null) SubtitleOnlyCheck.IsChecked = s.SubtitleOnly;
+        if (OnlineFallbackCheck != null) OnlineFallbackCheck.IsChecked = s.AllowOnlineFallback;
         DubbingCheck.IsChecked = s.DubbingEnabled;
         MutePcCheck.IsChecked = isMutePc;
         UpdatePcSesiButton();
@@ -190,6 +192,7 @@ public partial class MainView : UserControl
 
         UpdateModelSelectionUi();
         UpdatePatchUi();
+        UpdateLocalModelUi();
 
         loading = false;
     }
@@ -199,6 +202,9 @@ public partial class MainView : UserControl
         if (e.PropertyName is nameof(AppController.IsRunning) 
             or nameof(AppController.TranslatorStatus) 
             or nameof(AppController.ModelInstalled)
+            or nameof(AppController.ModelDownloading)
+            or nameof(AppController.ModelProgress)
+            or nameof(AppController.ModelError)
             or nameof(AppController.Console)
             or nameof(AppController.Tv)
             or nameof(AppController.TvClients)
@@ -206,6 +212,7 @@ public partial class MainView : UserControl
             or nameof(AppController.TvStatusText))
         {
             Refresh();
+            UpdateLocalModelUi();
         }
 
         if (e.PropertyName == nameof(AppController.LastFrame))
@@ -341,7 +348,7 @@ public partial class MainView : UserControl
         HomePs5Text.ToolTip = controller.Console?.Host;
 
         HomeHint.Text = !running ? "Oyunda altyazıları aç, sonra başlat."
-            : !tvOn ? "TV'de GameTranslator'ı aç; çeviri oyunun üstünde görünür."
+            : !tvOn ? "TV'de Altyazı Köprüsü'nü aç; çeviri oyunun üstünde görünür."
             : "Oynayabilirsin; çeviri TV'de oyunun üstünde görünür.";
 
         // Uyarı yalnız bir şey yolunda değilken.
@@ -809,6 +816,45 @@ public partial class MainView : UserControl
         UpdateTvPreview();
     }
 
+    private void OnSubtitleOnly(object sender, RoutedEventArgs e)
+    {
+        if (loading) return;
+        controller.Settings = controller.Settings with { SubtitleOnly = SubtitleOnlyCheck.IsChecked == true };
+    }
+
+    private void OnOnlineFallback(object sender, RoutedEventArgs e)
+    {
+        if (loading) return;
+        controller.Settings = controller.Settings with { AllowOnlineFallback = OnlineFallbackCheck.IsChecked == true };
+        UpdateLocalModelUi();
+    }
+
+    private void OnDownloadLocalModel(object sender, RoutedEventArgs e)
+    {
+        controller.StartModelDownload();
+        UpdateLocalModelUi();
+    }
+
+    /// <summary>Yerel model durumu: kurulu değilse açıkça yazar; indirme ve çevrimiçi yedek durumunu gösterir.</summary>
+    private void UpdateLocalModelUi()
+    {
+        if (LocalModelStatus == null || LocalModelDownloadButton == null) return;
+        if (controller.ModelDownloading)
+        {
+            LocalModelStatus.Text = $"Model indiriliyor… %{(int)(controller.ModelProgress * 100)}";
+            LocalModelDownloadButton.IsEnabled = false;
+            return;
+        }
+        var installed = controller.ModelInstalled;
+        LocalModelDownloadButton.IsEnabled = !installed;
+        LocalModelDownloadButton.Visibility = installed ? Visibility.Collapsed : Visibility.Visible;
+        LocalModelStatus.Foreground = (Brush)FindResource(installed ? "successBrush" : "warningBrush");
+        LocalModelStatus.Text = installed ? "Yerel model yüklü."
+            : controller.Settings.AllowOnlineFallback ? "Yerel model yüklü değil — şu an Google ücretsiz (yedek) kullanılıyor."
+            : controller.ModelError is { Length: > 0 } error ? $"Model indirilemedi: {error}"
+            : "Yerel çeviri modeli yüklü değil — indirin ya da çevrimiçi yedeğe izin verin";
+    }
+
     private void OnSharePool(object sender, RoutedEventArgs e)
     {
         if (loading) return;
@@ -1073,7 +1119,7 @@ public partial class MainView : UserControl
             MessageBox.Show("Dışa aktarılacak altyazı geçmişi henüz yok.", "Geçmiş Boş", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        var dlg = new SaveFileDialog { Filter = "Metin Dosyası (*.txt)|*.txt", FileName = "GameTranslator_Altyazi_Gecmisi.txt" };
+        var dlg = new SaveFileDialog { Filter = "Metin Dosyası (*.txt)|*.txt", FileName = "AltyaziKoprusu_Altyazi_Gecmisi.txt" };
         if (dlg.ShowDialog() == true)
         {
             var lines = history.Select(h => $"{h.Time}\tTV: {h.Turkish}\tPS5: {h.English}");
@@ -1089,7 +1135,7 @@ public partial class MainView : UserControl
             MessageBox.Show("Dışa aktarılacak altyazı geçmişi henüz yok.", "Geçmiş Boş", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        var dlg = new SaveFileDialog { Filter = "JSON Dosyası (*.json)|*.json", FileName = "GameTranslator_Altyazi_Gecmisi.json" };
+        var dlg = new SaveFileDialog { Filter = "JSON Dosyası (*.json)|*.json", FileName = "AltyaziKoprusu_Altyazi_Gecmisi.json" };
         if (dlg.ShowDialog() == true)
         {
             var json = JsonSerializer.Serialize(history, new JsonSerializerOptions { WriteIndented = true });
@@ -1113,7 +1159,7 @@ public partial class MainView : UserControl
 
     private void OnResetAll(object sender, RoutedEventArgs e)
     {
-        if (MessageBox.Show("GameTranslator ayarları sıfırlansın mı?", "Ayarları Sıfırla",
+        if (MessageBox.Show("Altyazı Köprüsü ayarları sıfırlansın mı?", "Ayarları Sıfırla",
             MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
         {
             controller.ResetSettings();
@@ -1127,6 +1173,8 @@ public partial class MainView : UserControl
     {
         controller.Step = OnboardingStep.Welcome;
     }
+
+    private void OnTvLayoutEditor(object sender, RoutedEventArgs e) => TvLayoutEditorWindow.Show(controller, Window.GetWindow(this));
 
     private void OnTvActionButton(object sender, RoutedEventArgs e)
     {

@@ -2,6 +2,7 @@
 
 using GameTranslator.Core;
 using GameTranslator.RemotePlay;
+using GameTranslator.Shell;
 
 namespace GameTranslator.App.Services;
 
@@ -46,7 +47,10 @@ public sealed class WindowCaptureStreamSession : IStreamSession
 
     private async Task CaptureLoopAsync(CancellationToken token)
     {
-        bool emittedStreaming = false;
+        var emittedStreaming = false;
+        var retry = new StreamReconnectPolicy(() => Environment.TickCount64);
+        var missingSince = 0L;
+        var launchedAt = Environment.TickCount64;
 
         while (running && !token.IsCancellationRequested)
         {
@@ -55,6 +59,7 @@ public sealed class WindowCaptureStreamSession : IStreamSession
                 var hWnd = WindowCaptureService.FindTargetWindow(out _);
                 if (hWnd != IntPtr.Zero)
                 {
+                    missingSince = 0;
                     // Chiaki'yi ekrana fırlatmak yerine arka planda görünmez tut
                     WindowCaptureService.MakeInvisibleBackground(hWnd);
 
@@ -64,11 +69,39 @@ public sealed class WindowCaptureStreamSession : IStreamSession
                         if (!emittedStreaming)
                         {
                             emittedStreaming = true;
+                            retry.MarkStreaming();
                             StateChanged?.Invoke(SessionState.Streaming);
                         }
                         FrameReceived?.Invoke(frame);
                     }
                 }
+                else
+                {
+                    // Akış penceresi kayboldu. Chiaki süreci de yoksa (çöktü / kapandı) yeniden başlatılır; süreç varsa
+                    // pencere yeniden oluşuyor olabilir, birkaç saniye beklenir.
+                    var now = Environment.TickCount64;
+                    if (missingSince == 0) missingSince = now;
+                    // Akış hiç başlamadıysa Chiaki'ye açılması için 10 sn tanınır.
+                    var grace = emittedStreaming ? 1500 : 10_000;
+                    if (!ChiakiLauncher.IsRunning() && now - missingSince >= grace && (emittedStreaming || now - launchedAt >= grace))
+                    {
+                        missingSince = 0;
+                        emittedStreaming = false;
+                        var decision = retry.OnExited();
+                        SubtitleLog.Write($"chiaki kapandı: {decision.Message}");
+                        StateChanged?.Invoke(SessionState.Disconnected(DisconnectKind.Network, decision.Message));
+                        if (!decision.Retry) { running = false; break; }
+                        await Task.Delay(StreamReconnectPolicy.DelayMs, token);
+                        StateChanged?.Invoke(SessionState.Connecting);
+                        if (console != null && !string.IsNullOrWhiteSpace(console.Host))
+                            ChiakiLauncher.LaunchAndStream(console.Host, console.Name);
+                        launchedAt = Environment.TickCount64;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                break;
             }
             catch { }
 

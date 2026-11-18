@@ -50,7 +50,7 @@ public sealed class FreeAreaWindow : Window
     {
         this.controller = controller;
         this.frame = frame;
-        Title = "GameTranslator";
+        Title = "Altyazı Köprüsü";
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
         WindowState = WindowState.Maximized;

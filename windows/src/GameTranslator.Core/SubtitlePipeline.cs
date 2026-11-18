@@ -49,6 +49,23 @@ public sealed class SubtitlePipeline(ITextReader reader, ITextTranslator transla
     public Func<Reading, TextBox, Reading>? LineFilter { get; set; }
     /// <summary>Okuma çevrilemeyecek kadar bozuk mu (uygulama yazım denetimiyle verir); null ise hiçbir okuma atılmaz.</summary>
     public Func<string, bool>? IsGarbage { get; set; }
+    /// <summary>
+    /// "Yalnızca oyun altyazısını çevir": OCR satırları <see cref="OcrNoise"/> ile temizlendikten sonra
+    /// <see cref="SubtitleFilter"/> tabela, plaka, HUD sayısı ve tuş ipuçlarını eler (Mac: filterNoise). Uygulama ayardan verir.
+    /// </summary>
+    public bool SubtitleOnly { get; set; }
+    /// <summary>Elenen satırlar günlüğe yazılır (kapalıysa yazılmaz).</summary>
+    public bool LogFilterDrops { get; set; } = true;
+    /// <summary>
+    /// Açıkken ekrana bölünmüş cümleler çeviriden önce birleştirilir (<see cref="SentenceJoiner"/>): birleşik kaynak çevrilir,
+    /// cümlenin tamamı gönderilir; tek başına dolgu ("well...") sonraki parçayla çevrilmek üzere <see cref="FillerHoldMs"/>
+    /// bekletilir. Uygulama açar.
+    /// </summary>
+    public bool JoinSentences { get; set; }
+    /// <summary>Dolgu sözcüğünün sonraki parçayı bekleme süresi (Mac: SentenceJoiner.maxGap = 6 sn).</summary>
+    public int FillerHoldMs { get; set; } = (int)(SentenceJoiner.MaxGap * 1000);
+    private readonly SentenceJoiner joiner = new();
+    private CancellationTokenSource? fillerCancel;
     public int CleanWait { get; set; } = CleanWaitMs;
     /// <summary>Okuma bozuk mu (bekletilecek mi); uygulama yazım denetimiyle daha iyisini verebilir.</summary>
     public Func<string, bool> LooksMisread { get; set; } = text => PackFuzzy.Damaged(text) || (ExtraMisreadCheck?.Invoke(text) ?? false);
@@ -290,6 +307,7 @@ public sealed class SubtitlePipeline(ITextReader reader, ITextTranslator transla
         // Alandaki menü ve köşe göstergeleri de altyazı değildir; yalnız altyazı bloğu çevrilir ve kutusu ona göre olur.
         var area = new TextBox(region.Left, region.Top, region.Right, region.Bottom);
         var cleaned = raw.WithoutButtonPrompts().WithoutOcrNoise();
+        if (SubtitleOnly) cleaned = WithSubtitleFilter(cleaned);
         // Karışan harfler ("nol" → "not", "Io" → "to") sözcük denetimi varsa onarılır.
         if (ExtraWordCheck is { } wordCheck)
             cleaned = new Reading(cleaned.Lines.Select(line => line with { Text = OcrConfusions.Repair(line.Text, wordCheck) }));
@@ -433,6 +451,34 @@ public sealed class SubtitlePipeline(ITextReader reader, ITextTranslator transla
         // Olaylar kilidin dışında çağrılır.
         flushed?.Invoke();
         after?.Invoke();
+    }
+
+    /// <summary>
+    /// Okumayı <see cref="SubtitleFilter"/>'dan geçirir. Satır kutuları (üstten, alana göre) Mac'in alttan-yukarı
+    /// normalize kutusuna çevrilir; kutusu bilinmeyen satır varsa yalnız satır kuralları (geometri/güven yok) uygulanır.
+    /// Her şey elenirse okuma boş döner (altyazı yok).
+    /// </summary>
+    internal Reading WithSubtitleFilter(Reading reading)
+    {
+        if (reading.Lines.Count == 0) return reading;
+        var haveBoxes = reading.Lines.All(line => line.Box is not null);
+        var map = new Dictionary<OcrTextLine, TextLine>(ReferenceEqualityComparer.Instance as IEqualityComparer<OcrTextLine>);
+        var converted = new List<OcrTextLine>();
+        foreach (var line in reading.Lines)
+        {
+            var box = line.Box is { } b
+                ? new OcrRect(b.Left, 1 - b.Bottom, Math.Max(0, b.Right - b.Left), Math.Max(0, b.Bottom - b.Top))
+                : new OcrRect(0.25, 0, 0.5, 0.05);
+            var ocr = new OcrTextLine(line.Text, box, (float)(line.Confidence ?? 1));
+            map[ocr] = line;
+            converted.Add(ocr);
+        }
+        var options = haveBoxes ? new SubtitleFilter.Options() : new SubtitleFilter.Options { UseGeometry = false, DropLowConfidence = false };
+        var verdict = SubtitleFilter.Evaluate(converted, options);
+        if (verdict.Dropped.Count == 0) return reading;
+        if (LogFilterDrops)
+            foreach (var (dropped, reason) in verdict.Dropped) Write($"elendi [{reason}] {SubtitleLog.Excerpt(dropped.Text)}");
+        return new Reading(verdict.Kept.Select(kept => map[kept]));
     }
 
     /// <summary>Satırın süreleri günlüğe: kare alınınca başlayan toplam gecikme ve içindeki okuma ve çeviri payı.</summary>
@@ -865,9 +911,27 @@ public sealed class SubtitlePipeline(ITextReader reader, ITextTranslator transla
     /// <summary>Satır ekrandan kalktıktan sonra gelen çevirinin TV'de kalacağı süre (TV uygulamasıyla aynı kural).</summary>
     public static int ReadingTime(string text) => Math.Min(8000, 2000 + (text.Length * 60));
 
-    private async Task Translate(Request request, CancellationToken token)
+    private async Task Translate(Request request, CancellationToken token, bool fromFiller = false)
     {
         var source = request.Source;
+        // Yeni bir satır geldi: bekleyen dolgu artık tek başına gönderilmez (devam parçasıyla birlikte çevrilir).
+        CancellationTokenSource? previousFiller;
+        lock (gate) { previousFiller = fillerCancel; fillerCancel = null; }
+        if (!fromFiller) previousFiller?.Cancel();
+        // Ekrana bölünmüş cümle çeviriden önce birleştirilir; çevrilen birleşik kaynaktır, TV'ye cümlenin tamamı gider.
+        var toTranslate = source;
+        if (JoinSentences && !fromFiller)
+        {
+            var joined = joiner.Feed(source, now() / 1000.0);
+            toTranslate = joined.Source;
+            if (joined.Hold)
+            {
+                Write(request, $"dolgu bekletiliyor ({FillerHoldMs} ms): {SubtitleLog.Excerpt(source)}");
+                HoldFiller(request);
+                return;
+            }
+            if (joined.IsContinuation) Write(request, $"birleşik cümle: {SubtitleLog.Excerpt(toTranslate)}");
+        }
         var started = now();
         // Önbellekten mi geldi, hangi motor çevirdi: yalnız günlük için (bu yöntemin beklediği çağrılar görür).
         var probe = new TranslationProbe();
@@ -875,7 +939,7 @@ public sealed class SubtitlePipeline(ITextReader reader, ITextTranslator transla
         string translated;
         try
         {
-            translated = await translator.TranslateAsync(source, token);
+            translated = await translator.TranslateAsync(GameEnglish.Plain(toTranslate), token);
         }
         catch (Exception error)
         {
@@ -931,7 +995,7 @@ public sealed class SubtitlePipeline(ITextReader reader, ITextTranslator transla
                 return;
             }
             // Satır ekrandan çoktan kalktıysa çevirisi sonraki sahnenin üstüne düşmesin.
-            if (!onScreen && request.LeftAt is { } left && now() - left > LateResultMs)
+            if (!fromFiller && !onScreen && request.LeftAt is { } left && now() - left > LateResultMs)
             {
                 Write(request, $"{result}, geç: satır {now() - left} ms önce kalktı, gösterilmedi");
                 return;
@@ -952,6 +1016,29 @@ public sealed class SubtitlePipeline(ITextReader reader, ITextTranslator transla
         PairShown?.Invoke(source, translated);
         if (SpeechReady is { } speech) speech(translator.SpokenLines(source));
         if (Upgrader is { } upgrader) _ = UpgradeAsync(upgrader, request, source, translated);
+    }
+
+    /// <summary>
+    /// Tek başına dolgu ("well...", "uh...") sonraki parçayla çevrilmek üzere bekletilir; süre dolunca (ve arada başka satır
+    /// gelmediyse) tek başına çevrilip gönderilir. Başarısız çeviri bu yolda da hiçbir şey göndermez.
+    /// </summary>
+    private void HoldFiller(Request request)
+    {
+        var cancel = new CancellationTokenSource();
+        lock (gate) fillerCancel = cancel;
+        var wait = FillerHoldMs;
+        _ = Task.Run(async () =>
+        {
+            try { await Task.Delay(wait, cancel.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) { return; }
+            lock (gate)
+            {
+                if (cancel.IsCancellationRequested || request.Session != session || fillerCancel != cancel || lastShown >= request.Number) return;
+                fillerCancel = null;
+            }
+            try { await Translate(request, cancel.Token, fromFiller: true).ConfigureAwait(false); }
+            catch { }
+        });
     }
 
     private void Remember(int number, string source, string? translation)
@@ -979,6 +1066,9 @@ public sealed class SubtitlePipeline(ITextReader reader, ITextTranslator transla
             held = null;
             lastSent = null;
             inFlightCancel?.Cancel();
+            fillerCancel?.Cancel();
+            fillerCancel = null;
+            joiner.Reset();
             pairs.Clear();
             lastReading = Reading.Empty;
             lastReadMs = null;

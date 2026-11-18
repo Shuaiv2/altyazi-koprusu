@@ -224,7 +224,7 @@ public sealed class DesktopSubtitleOverlay : Window
         _container.BorderBrush = new SolidColorBrush(Color.FromRgb(0x38, 0xBD, 0xF8)); // Parlak Neon Mavi
         _container.BorderThickness = new Thickness(2.5);
         _subtitleText.Foreground = new SolidColorBrush(Color.FromRgb(0x38, 0xBD, 0xF8));
-        _subtitleText.Text = "📍 GameTranslator: Altyazıyı istediğiniz ekrana/yere sürükleyin\n(Sabitlemek için buraya çift tıklayın)";
+        _subtitleText.Text = "📍 Altyazı Köprüsü: Altyazıyı istediğiniz ekrana/yere sürükleyin\n(Sabitlemek için buraya çift tıklayın)";
 
         UpdatePosition();
         Visibility = Visibility.Visible;

@@ -71,6 +71,14 @@ public sealed record UserSettings
     /// <summary>Anahtar girildiyse çeviri DeepL'le yapılır; kapalıysa ya da DeepL'e ulaşılamazsa cihaz üstü model.</summary>
     public bool OnlineTranslation { get; init; }
     /// <summary>
+    /// Yerel çeviri modeli kurulu değilken ya da başarısız olunca metin Google'ın ücretsiz (resmi olmayan) uç noktasına
+    /// gönderilebilir. Varsayılan KAPALI: kapalıyken metin bilgisayardan çıkmaz, çeviri yoksa TV'ye bir şey gitmez
+    /// (Mac: gt_local_online_fallback).
+    /// </summary>
+    public bool AllowOnlineFallback { get; init; }
+    /// <summary>"Yalnızca oyun altyazısını çevir": tabela, plaka, HUD sayısı, tuş ipuçlarını eler (<see cref="SubtitleFilter"/>).</summary>
+    public bool SubtitleOnly { get; init; } = true;
+    /// <summary>
     /// Hiçbir pakette bulunmayan İngilizce oyun satırları ortak havuza gönderilir (anonim, yalnız satır metni ve oyun adı;
     /// bkz. <see cref="LinePool"/>). Yeni oyun paketleri bunlardan hazırlanır. Ayarlardan kapatılabilir.
     /// </summary>
@@ -205,6 +213,11 @@ public interface IAppServices
     /// </summary>
     bool HasOcrLanguage(string language) => true;
     ITranslationModel Translation { get; }
+    /// <summary>
+    /// Yerel model yokken YALNIZ kullanıcı "İnternet yedeğine izin ver" dediyse kullanılan çevrimiçi çevirmen
+    /// (Google ücretsiz, resmi olmayan). Bu derlemede yoksa null.
+    /// </summary>
+    ITextTranslator? MakeOnlineFallbackTranslator(string source, string target) => null;
     /// <summary>DeepL çevirmeni; <paramref name="fallback"/> DeepL'e ulaşılamayan satırları çevirir. Bu derlemede yoksa null.</summary>
     ITextTranslator? MakeOnlineTranslator(string key, ITextTranslator? fallback) => null;
     Task<OnlineKeyCheck> CheckOnlineKeyAsync(string key) => Task.FromResult(new OnlineKeyCheck(OnlineKeyState.Unreachable));
@@ -225,6 +238,8 @@ public interface IAppServices
     LinePool? Pool => null;
     /// <summary>Altyazı geçmişinin dosyası (%LOCALAPPDATA%\GameTranslator\history.json); testlerde null (diske yazılmaz).</summary>
     string? HistoryFile => null;
+    /// <summary>TV'nin bildirdiği altyazı düzeninin dosyası (%LOCALAPPDATA%\AltyaziKoprusu\tv-layout.json); testlerde null.</summary>
+    string? LayoutStoreFile => null;
 }
 
 /// <param name="Launched">false ise TV uygulaması açılamadı; büyük olasılıkla TV'de kurulu değil.</param>
