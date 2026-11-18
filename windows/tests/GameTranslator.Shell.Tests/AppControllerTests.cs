@@ -221,8 +221,10 @@ public class AppControllerTests
     internal static AppController Make(FakeServices? services = null, MemoryStore? store = null, MemorySettings? settings = null, FakeSleep? sleep = null) =>
         new(services ?? new FakeServices(), store ?? new MemoryStore(), settings ?? new MemorySettings(), sleep ?? new FakeSleep(), Localizer.ForLanguage("en"), action => action());
 
+    /// Beş sekmeli yeni arayüzde (acc7324) ilk açılış sihirbazı atlanır; uygulama doğrudan ana ekranla açılır.
+    /// Sihirbaz adımları yine de Step atanarak gezilebilir (aşağıdaki testler).
     [Fact]
-    public void FreshInstallStartsAtWelcome() => Assert.Equal(OnboardingStep.Welcome, Make().Step);
+    public void FreshInstallOpensMainScreenDirectly() => Assert.Equal(OnboardingStep.Done, Make().Step);
 
     [Fact]
     public void CompleteSetupOpensMainScreen()
@@ -240,7 +242,7 @@ public class AppControllerTests
     {
         var controller = Make();
         controller.Step = OnboardingStep.PsnLogin;
-        Assert.False(controller.CanAdvance);
+        Assert.False(controller.HasAccount);
         await controller.CompletePsnLoginAsync(new Uri("https://remoteplay.dl.playstation.net/remoteplay/redirect?code=x"));
         Assert.True(controller.CanAdvance);
     }
@@ -252,9 +254,9 @@ public class AppControllerTests
         var controller = Make(services);
         await controller.CompletePsnLoginAsync(new Uri("https://x/?code=x"));
         controller.Step = OnboardingStep.Console;
-        Assert.False(controller.CanAdvance);
+        Assert.Null(controller.Console);
         await controller.RegisterAsync("192.168.1.253", "12345678");
-        Assert.True(controller.CanAdvance);
+        Assert.NotNull(controller.Console);
         Assert.Equal("192.168.1.253", services.Registered?.Host);
     }
 
@@ -334,6 +336,7 @@ public class AppControllerTests
         services.Translation.Installed = false;
         services.Translation.DownloadGate = new TaskCompletionSource();
         var controller = Make(services);
+        controller.Step = OnboardingStep.Welcome;
         Assert.Equal(0, services.Translation.Downloads);
         controller.Advance();
         Assert.Equal(1, services.Translation.Downloads);
@@ -348,12 +351,13 @@ public class AppControllerTests
         services.Translation.Installed = false;
         services.Translation.DownloadGate = new TaskCompletionSource();
         var controller = Make(services);
+        controller.Step = OnboardingStep.Welcome;
         controller.Advance();
         controller.Step = OnboardingStep.Translation;
-        Assert.False(controller.CanAdvance);
+        Assert.True(controller.ModelDownloading);
         services.Translation.DownloadGate.SetResult();
         await controller.WaitForModelAsync();
-        Assert.True(controller.CanAdvance);
+        Assert.False(controller.ModelDownloading);
         Assert.Equal(1.0, controller.ModelProgress);
     }
 
@@ -361,6 +365,7 @@ public class AppControllerTests
     public async Task OnboardingWalksAllStepsInOrder()
     {
         var controller = Make();
+        controller.Step = OnboardingStep.Welcome;
         Assert.Equal(OnboardingStep.Welcome, controller.Step); controller.Advance();
         Assert.Equal(OnboardingStep.SecondAccount, controller.Step); controller.Advance();
         Assert.Equal(OnboardingStep.PsnLogin, controller.Step);

@@ -394,7 +394,7 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
             if (request is null) { tcp.Dispose(); return; }
             if (request.TooLarge)
             {
-                await RespondAndClose(tcp, "413 Payload Too Large", "Too Large");
+                await RespondAndClose(tcp, "413 Payload Too Large", "Too Large", drainIncoming: true);
                 return;
             }
             var requestLine = request.Line;
@@ -568,7 +568,7 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
         tcp.Dispose();
     }
 
-    private static async Task RespondAndClose(TcpClient tcp, string status, string body = "")
+    private static async Task RespondAndClose(TcpClient tcp, string status, string body = "", bool drainIncoming = false)
     {
         var bodyBytes = Encoding.UTF8.GetBytes(body);
         var head = $"HTTP/1.1 {status}\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: *\r\nContent-Type: application/json; charset=utf-8\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n";
@@ -578,7 +578,31 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
         {
             await stream.WriteAsync(bodyBytes);
         }
+        if (drainIncoming) await DrainIncoming(tcp);
         tcp.Dispose();
+    }
+
+    /// <summary>
+    /// Okunmamış veriyle kapatılan soket (özellikle Windows'ta) karşıya RST gönderir ve istemci 413 yanıtını okuyamadan
+    /// "bağlantı koptu" görür. Yanıtı gönderdikten sonra gönderimi kapatıp istemcinin geri kalanını kısa süre boşaltırız.
+    /// </summary>
+    private static async Task DrainIncoming(TcpClient tcp)
+    {
+        try
+        {
+            tcp.Client.Shutdown(SocketShutdown.Send);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            var buffer = new byte[8192];
+            var total = 0;
+            var stream = tcp.GetStream();
+            while (total < 4 * 1024 * 1024)
+            {
+                var count = await stream.ReadAsync(buffer, cts.Token);
+                if (count == 0) break;
+                total += count;
+            }
+        }
+        catch { }
     }
 
     private async Task OpenStream(TcpClient tcp, bool viewer = false)

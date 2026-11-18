@@ -113,8 +113,24 @@ public class SubtitleServerLayoutTests
     {
         using var server = new SubtitleServer(0);
         var port = await server.StartAsync();
-        using var post = await Http.PostAsync($"http://127.0.0.1:{port}/tv-layout", Body("{\"settings\":{\"a\":\"" + new string('x', 70000) + "\"}}"));
-        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, post.StatusCode);
+        // Content-Length 64 KB'yi aşar; sunucu gövdeyi beklemeden 413 vermelidir. Ham soketle yalnız başlık ve küçük
+        // bir parça yollanır, böylece sonuç Windows ve macOS'ta HttpClient'ın gövde yazma yarışına bağlı kalmaz.
+        using var tcp = new TcpClient();
+        await tcp.ConnectAsync(IPAddress.Loopback, port);
+        var stream = tcp.GetStream();
+        await stream.WriteAsync(Encoding.ASCII.GetBytes("POST /tv-layout HTTP/1.1\r\nHost: x\r\nContent-Length: 70000\r\n\r\n{\"settings\":"));
+        await stream.FlushAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var received = new MemoryStream();
+        var buffer = new byte[4096];
+        try
+        {
+            int count;
+            while ((count = await stream.ReadAsync(buffer, timeout.Token)) > 0) received.Write(buffer, 0, count);
+        }
+        catch (IOException) { } // yanıt okunduktan sonra gelen sıfırlama sorun değil
+        var response = Encoding.UTF8.GetString(received.ToArray());
+        Assert.StartsWith("HTTP/1.1 413", response);
         Assert.Null(server.LastTvLayout);
     }
 

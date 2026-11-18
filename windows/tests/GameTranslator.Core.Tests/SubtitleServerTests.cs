@@ -151,8 +151,13 @@ public class SubtitleServerTests
         await WaitUntil(() => server.ConnectedClients == 1);
         server.SendSubtitle("Kapıyı tut, evlat!", 4000);
         using var reader = new StreamReader(await response.Content.ReadAsStreamAsync());
-        var lines = await ReadLines(reader, "");
-        lines = await ReadLines(reader, "");
+        // Bağlantı açılışında "retry" ve ": ping" çerçeveleri gelir; altyazı olayı ondan sonraki "data:" satırıdır.
+        var lines = new List<string>();
+        while (await reader.ReadLineAsync() is { } line)
+        {
+            lines.Add(line);
+            if (line.StartsWith("data:") && line.Contains("evlat")) break;
+        }
         Assert.Contains(lines, l => l.Contains("Kapıyı tut, evlat!"));
     }
 
@@ -215,7 +220,10 @@ public class SubtitleServerTests
         using var server = new SubtitleServer(0);
         var port = await server.StartAsync();
         using var http = new HttpClient();
-        Assert.Equal("{\"app\":\"GameTranslator\"}", await http.GetStringAsync($"http://127.0.0.1:{port}/hello"));
+        // Android TV uygulaması gövdede "gametranslator" dizesini büyük/küçük harf gözetmeden arar; sunucu küçük harf döner.
+        var json = System.Text.Json.Nodes.JsonNode.Parse(await http.GetStringAsync($"http://127.0.0.1:{port}/hello"))!;
+        Assert.Equal("gametranslator", (string?)json["app"]);
+        Assert.Equal("GameTranslator", (string?)json["name"]);
     }
 
     [Fact]
