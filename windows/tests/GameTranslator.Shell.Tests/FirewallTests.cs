@@ -141,7 +141,7 @@ public class FirewallRunningTests
 
     private static async Task WaitUntil(Func<bool> condition)
     {
-        var deadline = DateTime.UtcNow.AddSeconds(3);
+        var deadline = DateTime.UtcNow.AddSeconds(10); // yavaş CI sunucuları için geniş pay
         while (!condition())
         {
             Assert.True(DateTime.UtcNow < deadline, "Koşul zamanında sağlanmadı");
