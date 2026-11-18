@@ -7,6 +7,7 @@ import WebKit
 import Darwin
 import Vision
 import Combine
+import IOKit.pwr_mgt
 import Translation
 
 /// Altyazı süzgeci hata ayıklama günlüğü: AK_DEBUG_FILTER=1 ile açılır (stderr).
@@ -213,6 +214,15 @@ public final class NativeSubtitleServer: @unchecked Sendable {
 
     public func clearSubtitle() {
         broadcast(event: "clear", json: [:])
+    }
+
+    /// Bilgi kutusu çevirisi: TV `screen` olayı. items: [{text, source, box{left,top,right,bottom}, line, placement}]
+    public func sendScreen(items: [[String: Any]], durationMs: Int = 15000) {
+        broadcast(event: "screen", json: ["duration": durationMs, "items": items])
+    }
+
+    public func clearScreen() {
+        broadcast(event: "screen-clear", json: [:])
     }
 
     public func sendStyle(_ style: SubtitleStyle) {
@@ -1714,7 +1724,55 @@ enum PS5RegistrationBridge {
 
 @Observable
 final class AppState {
-    var isRunning: Bool = false
+    var isRunning: Bool = false {
+        didSet { if isRunning != oldValue { updateSleepAssertions() } }
+    }
+    @ObservationIgnored private var displayAssertion: IOPMAssertionID = 0
+    @ObservationIgnored private var systemAssertion: IOPMAssertionID = 0
+
+    /// Çeviri açıkken ekran ve sistem uykuya dalmasın (ekran uyuyunca yakalama durur, altyazılar kaybolur).
+    func updateSleepAssertions() {
+        if isRunning {
+            if displayAssertion == 0 {
+                IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                            "Altyazı Köprüsü çeviri çalışıyor" as CFString, &displayAssertion)
+            }
+            if systemAssertion == 0 {
+                IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
+                                            "Altyazı Köprüsü çeviri çalışıyor" as CFString, &systemAssertion)
+            }
+        } else { releaseSleepAssertions() }
+    }
+
+    func releaseSleepAssertions() {
+        if displayAssertion != 0 { IOPMAssertionRelease(displayAssertion); displayAssertion = 0 }
+        if systemAssertion != 0 { IOPMAssertionRelease(systemAssertion); systemAssertion = 0 }
+    }
+
+    // Bilgi kutusu (sol üst öğretici/yardım kutuları): ikinci, bağımsız OCR geçişi.
+    var infoEnabled: Bool = UserDefaults.standard.object(forKey: "gt_info_enabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(infoEnabled, forKey: "gt_info_enabled") }
+    }
+    var infoLeft: Double = UserDefaults.standard.object(forKey: "gt_info_left") as? Double ?? 0.01 {
+        didSet { UserDefaults.standard.set(infoLeft, forKey: "gt_info_left") }
+    }
+    var infoTop: Double = UserDefaults.standard.object(forKey: "gt_info_top") as? Double ?? 0.24 {
+        didSet { UserDefaults.standard.set(infoTop, forKey: "gt_info_top") }
+    }
+    var infoRight: Double = UserDefaults.standard.object(forKey: "gt_info_right") as? Double ?? 0.27 {
+        didSet { UserDefaults.standard.set(infoRight, forKey: "gt_info_right") }
+    }
+    var infoBottom: Double = UserDefaults.standard.object(forKey: "gt_info_bottom") as? Double ?? 0.44 {
+        didSet { UserDefaults.standard.set(infoBottom, forKey: "gt_info_bottom") }
+    }
+    var liveInfo: String = ""
+    @ObservationIgnored private var infoTracker = InfoBoxTracker()
+    @ObservationIgnored private var infoTick = 0
+    @ObservationIgnored private var isProcessingInfo = false
+    @ObservationIgnored private var infoSeq = 0
+    @ObservationIgnored private var resendGuard = ResendGuard()
+    @ObservationIgnored private var lastOffscreenLogAt: Date = .distantPast
+    static let offscreenMessage = "chiaki-ng penceresi ekranda değil — küçültmeyin / bu masaüstünde tutun"
     var ps5Connected: Bool = false
     var psnEmail: String = ""
     var ps5Host: String = ""
@@ -2409,6 +2467,11 @@ final class AppState {
         _ = self.stabilizer.reset()
         self.sentenceJoiner.reset()
         self.fillerTask?.cancel()
+        self.resendGuard.reset()
+        self.infoTracker.reset()
+        self.infoSeq += 1
+        self.liveInfo = ""
+        server.clearScreen()
         self.liveEnglish = "PS5 Canlı Akışı Bekleniyor"
         self.liveTurkish = "Çeviri Durduruldu"
 
@@ -2457,12 +2520,14 @@ final class AppState {
     }
 
     func tickStreamCaptureAndOCR() {
-        let options = CGWindowListOption([.optionOnScreenOnly, .excludeDesktopElements])
+        // Ekran dışı (küçültülmüş / başka masaüstü) pencereyi de görmek için tüm pencereler taranır.
+        let options = CGWindowListOption([.optionAll, .excludeDesktopElements])
         guard let windowInfoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else { return }
 
         // Birden çok eşleşen pencere olabilir (menü, küçük yardımcı pencereler): en büyük normal (layer 0) pencereyi seç.
         var targetWindowId: CGWindowID? = nil
         var bestArea: Double = 0
+        var anyChiakiWindow = false
         for info in windowInfoList {
             if let owner = info[kCGWindowOwnerName as String] as? String,
                (owner.localizedCaseInsensitiveContains("chiaki") ||
@@ -2476,8 +2541,26 @@ final class AppState {
                    let w = (b["Width"] as? NSNumber)?.doubleValue, let h = (b["Height"] as? NSNumber)?.doubleValue {
                     area = w * h
                 }
+                // Çok küçük (küçültülmüş/yardımcı) pencereleri hedef sayma.
+                if area < 200 * 200 { continue }
+                anyChiakiWindow = true
+                let onscreen = (info[kCGWindowIsOnscreen as String] as? Bool) ?? false
+                guard onscreen else { continue }
                 if area > bestArea { bestArea = area; targetWindowId = windowId }
             }
+        }
+
+        if targetWindowId == nil, anyChiakiWindow {
+            // Pencere var ama ekranda değil: yakalama bozuk olur, OCR'ı besleme.
+            if Date().timeIntervalSince(lastOffscreenLogAt) >= 5.0 {
+                lastOffscreenLogAt = Date()
+                SubtitleDebug.log("chiaki penceresi ekranda değil (küçültülmüş ya da başka masaüstünde): OCR atlandı")
+                DispatchQueue.main.async {
+                    self.liveTurkish = Self.offscreenMessage
+                    self.liveEnglish = "chiaki-ng window is not on screen"
+                }
+            }
+            return
         }
 
         if targetWindowId != lastTargetWindowId {
@@ -2524,6 +2607,9 @@ final class AppState {
             self.gameFrameImage = nsImg
             self.ps5Connected = true
         }
+
+        infoTick += 1
+        if infoEnabled, infoTick % 3 == 0 { runInfoBoxPass(frame: pureVideoCg) }
 
         if isProcessingOCR, Date().timeIntervalSince(ocrStartedAt) > 3.0 {
             // Takılan geçiş: sıfırla, geç gelen sonuçları yok say.
@@ -2713,6 +2799,7 @@ final class AppState {
                             let r = await self.translateText(GameEnglish.plain(sourceText))
                             guard !Task.isCancelled, let t = r.text else { return }
                             await MainActor.run {
+                                guard self.resendGuard.shouldSend([t, sourceText], at: Date().timeIntervalSinceReferenceDate) else { return }
                                 self.liveTurkish = t
                                 self.server.sendSubtitle(turkish: t, original: sourceText, box: currentBox)
                             }
@@ -2736,6 +2823,11 @@ final class AppState {
                                 if dbg { SubtitleDebug.log("sendSubtitle ÇAĞRILMADI (çeviri yok)") }
                                 return
                             }
+                            // Aynı (ya da ≥0.9 benzer) satır 8 sn içinde yeniden gönderilmez.
+                            guard self.resendGuard.shouldSend([turkish, sourceText], at: Date().timeIntervalSinceReferenceDate) else {
+                                if dbg { SubtitleDebug.log("tekrar gönderim engellendi: \"\(turkish)\"") }
+                                return
+                            }
                             self.liveTurkish = turkish
                             self.server.sendSubtitle(turkish: turkish, original: sourceText, box: currentBox)
                             if dbg { SubtitleDebug.log("sendSubtitle çağrıldı: \"\(turkish)\"") }
@@ -2748,6 +2840,66 @@ final class AppState {
                 }
             } catch {
                 if dbg { SubtitleDebug.log("OCR #\(gen): Vision hatası: \(error.localizedDescription)") }
+            }
+        }
+    }
+
+    /// Bilgi kutusu geçişi: aynı karede ikinci OCR (ek yakalama yok), altyazı hattından bağımsız.
+    private func runInfoBoxPass(frame: CGImage) {
+        guard !isProcessingInfo else { return }
+        let region = InfoBox.Region(left: min(infoLeft, infoRight - 0.05), top: min(infoTop, infoBottom - 0.05),
+                                    right: max(infoRight, infoLeft + 0.05), bottom: max(infoBottom, infoTop + 0.05))
+        let vW = Double(frame.width), vH = Double(frame.height)
+        let rect = CGRect(x: max(0, vW * region.left), y: max(0, vH * region.top),
+                          width: min(vW, vW * (region.right - region.left)), height: min(vH, vH * (region.bottom - region.top)))
+        guard let crop = frame.cropping(to: rect.intersection(CGRect(x: 0, y: 0, width: vW, height: vH))) else { return }
+        isProcessingInfo = true
+        let seq = infoSeq
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["en-US"]
+            request.usesLanguageCorrection = true
+            var lines: [OCRLine] = []
+            if (try? VNImageRequestHandler(cgImage: crop, options: [:]).perform([request])) != nil {
+                for obs in request.results ?? [] {
+                    guard let top = obs.topCandidates(1).first, top.confidence >= 0.35 else { continue }
+                    lines.append(OCRLine(text: top.string.trimmingCharacters(in: .whitespacesAndNewlines), box: obs.boundingBox, confidence: top.confidence))
+                }
+            }
+            // Düğme ipuçlarını ve çöp satırları bilgi kutusunda da ele.
+            lines = SubtitleFilter.evaluate(lines, options: { var o = SubtitleFilter.Options(); o.useGeometry = false; o.dropShortCaps = false; return o }()).kept
+            let block = InfoBox.bestBlock(from: lines, region: region)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.isProcessingInfo = false
+                guard self.isRunning, self.infoEnabled, seq == self.infoSeq else { return }
+                switch self.infoTracker.feed(block) {
+                case .none: break
+                case .clear:
+                    self.infoSeq += 1
+                    self.liveInfo = ""
+                    self.server.clearScreen()
+                case .translate(let b):
+                    self.infoSeq += 1
+                    let mySeq = self.infoSeq
+                    Task {
+                        let result = await self.translateText(GameEnglish.plain(b.text))
+                        await MainActor.run {
+                            guard mySeq == self.infoSeq, self.isRunning else { return }
+                            guard let turkish = result.text else { self.infoTracker.forgetShown(); return }
+                            self.liveInfo = turkish
+                            let box: [String: Double] = [
+                                "left": Double(b.box.minX), "top": Double(b.box.minY),
+                                "right": Double(b.box.maxX), "bottom": Double(b.box.maxY),
+                            ]
+                            self.server.sendScreen(items: [[
+                                "text": turkish, "source": b.text, "box": box,
+                                "line": b.lineHeight, "placement": "below",
+                            ]])
+                        }
+                    }
+                }
             }
         }
     }
@@ -4067,6 +4219,12 @@ struct MainWindowView: View {
                             .lineLimit(1)
                     }
                 }
+                if state.isRunning, !state.liveInfo.isEmpty {
+                    Text("ℹ️ Bilgi kutusu: \(state.liveInfo)")
+                        .font(.system(size: 9.5, weight: .medium))
+                        .foregroundStyle(Color(hex: "#FBBF24"))
+                        .lineLimit(2)
+                }
             }
             .padding(7)
             .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 7))
@@ -4111,6 +4269,28 @@ struct MainWindowView: View {
                             Text("%\(Int(state.cropRight * 100))").font(.system(size: 10, weight: .bold, design: .monospaced)).foregroundStyle(Color(hex: "#38BDF8"))
                         }
                         Slider(value: $state.cropRight, in: 0.55...1.0, step: 0.01) { _ in state.selectedPreset = .custom }
+                    }
+                }
+            }
+            .padding(10)
+            .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
+
+            // Bilgi kutusu (sol üst öğretici kutuları)
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle("Bilgi kutularını çevir", isOn: $state.infoEnabled).font(.system(size: 10.5)).toggleStyle(.checkbox)
+                if state.infoEnabled {
+                    HStack(spacing: 10) {
+                        ForEach([("Sol", \AppState.infoLeft, 0.0...0.6), ("Üst", \AppState.infoTop, 0.0...0.9),
+                                 ("Sağ", \AppState.infoRight, 0.1...1.0), ("Alt", \AppState.infoBottom, 0.1...1.0)], id: \.0) { item in
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack {
+                                    Text("Bilgi \(item.0)").font(.system(size: 10)).foregroundStyle(Color.white.opacity(0.75))
+                                    Spacer()
+                                    Text("%\(Int(state[keyPath: item.1] * 100))").font(.system(size: 9.5, weight: .bold, design: .monospaced)).foregroundStyle(Color(hex: "#38BDF8"))
+                                }
+                                Slider(value: Binding(get: { state[keyPath: item.1] }, set: { state[keyPath: item.1] = $0 }), in: item.2, step: 0.01)
+                            }
+                        }
                     }
                 }
             }

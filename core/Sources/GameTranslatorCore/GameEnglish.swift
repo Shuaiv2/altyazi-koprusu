@@ -15,6 +15,15 @@ public enum GameEnglish {
         ("lock and load", "get ready"),
         ("sitting ducks", "easy targets"),
         ("moving in", "going in"),
+        ("got canned", "got fired"),
+        ("get canned", "get fired"),
+        ("about fuck(?:in'|in’|ing) time", "finally"),
+        ("b4", "before"),
+        ("2gether", "together"),
+        ("gonna", "going to"),
+        ("wanna", "want to"),
+        ("ain't", "is not"),
+        ("my bad", "my mistake"),
     ].map { (try! NSRegularExpression(pattern: "\\b\($0.0)\\b", options: .caseInsensitive), $0.1) }
 
     /// Bilinen ifadeler düz İngilizceye çevrilir; cümle başındaki büyük harf korunur.

@@ -172,6 +172,13 @@ public enum SubtitleFilter {
             let startsPrompt = ["hold", "press", "tap"].contains(first) || first == "bas"
                 || (first == "basılı" && lowered.count > 1 && lowered[1] == "tut")
             if startsPrompt {
+                // Glif yanlış okunsa da ("Press oa to open ...") 3 sözcük içinde "to" varsa ipucudur.
+                // "Hold on!" / "Press on, everyone." gibi diyaloglarda "to" kalıbı yoktur.
+                let after = Array(lowered.dropFirst().prefix(3))
+                if let toIndex = after.firstIndex(of: "to") {
+                    let dialogue: Set<String> = ["on", "me", "you", "him", "her", "it", "us", "them", "your", "my", "up", "out", "back", "that", "this", "the"]
+                    if !after[..<toIndex].contains(where: { dialogue.contains($0) }) { return true }
+                }
                 let second = lowered.count > 1 ? lowered[1] : ""
                 let hasButtonWord = lowered.contains { ["button", "buttons", "key", "düğme", "düğmesi", "tuş", "tuşu", "tuşuna"].contains($0) }
                 if hasButtonWord || second == "to" || lowered.contains("to") && lowered.count <= 5 || lowered.count == 1 {

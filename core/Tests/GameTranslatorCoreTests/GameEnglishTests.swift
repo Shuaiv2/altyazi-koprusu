@@ -14,6 +14,12 @@ final class GameEnglishTests: XCTestCase {
         XCTAssertEqual(GameEnglish.plain("Copy that. Moving in."), "Copy that. Going in.")
     }
 
+    func testSlangBecomesPlainEnglish() {
+        XCTAssertEqual(GameEnglish.plain("He got canned."), "He got fired.")
+        XCTAssertEqual(GameEnglish.plain("About fuckin' time!"), "Finally!")
+        XCTAssertEqual(GameEnglish.plain("I wanna go, it ain't right. My bad."), "I want to go, it is not right. My mistake.")
+    }
+
     func testOtherTextIsUnchanged() {
         XCTAssertEqual(GameEnglish.plain("The friendliest town in the north."), "The friendliest town in the north.")
         XCTAssertEqual(GameEnglish.plain("Stand down!"), "Stand down!")
