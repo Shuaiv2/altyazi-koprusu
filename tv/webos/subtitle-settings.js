@@ -182,8 +182,8 @@
 
   // Bilgi kutusu çevirisi: oyunun İngilizce kutusunun HEMEN ALTINA konur. box/line normalleştirilmiş (0..1).
   // Genişlik = max(kutu genişliği, ekranın %22'si), ekran içine (margin) sıkıştırılır; boşluk = 0.6 x satır yüksekliği.
-  // contentHeight verilirse ve alta sığmıyorsa yukarı kayar ama İngilizce kutunun altından yukarı çıkmaz.
-  // Dönüş: { left, top, width, maxHeight, gap } (px); maxHeight = alt kenar boşluğuna kadar kalan yükseklik.
+  // contentHeight verilirse ve alta sığmıyorsa kutunun ÜSTÜNE konur (üstte de yer yoksa eski gibi yukarı kayar, kutunun altından yukarı çıkmaz).
+  // Dönüş: { left, top, width, maxHeight, gap, placed } (px); placed 'below' | 'above'; maxHeight = kalan yükseklik.
   function belowRect(box, line, vw, vh, margin, contentHeight) {
     var w = Math.max(1, num(vw, 1920)), h = Math.max(1, num(vh, 1080));
     var m = Math.max(0, Math.min(num(margin, 48), Math.floor(w / 2) - 1));
@@ -194,17 +194,66 @@
     var width = Math.min(Math.max(boxW, 0.22 * w), w - 2 * m);
     var left = clamp(num(box.left, 0) * w, m, w - m - width);
     var boxBottom = num(box.bottom, 0) * h;
+    var boxTop = num(box.top, 0) * h;
     var top = boxBottom + gap;
     var ch = Math.max(0, num(contentHeight, 0));
-    if (ch > 0 && top + ch > h - m) top = Math.max(boxBottom, h - m - ch);
+    var placed = 'below';
+    var maxH = null;
+    if (ch > 0 && top + ch > h - m) {
+      var aboveTop = boxTop - gap - ch;
+      if (aboveTop >= m) {
+        top = aboveTop;
+        placed = 'above';
+        maxH = boxTop - gap - m;
+      } else {
+        top = Math.max(boxBottom, h - m - ch);
+      }
+    }
     top = Math.min(top, Math.max(boxBottom, h - m - 1));
-    return { left: Math.round(left), top: Math.round(top), width: Math.round(width), maxHeight: Math.max(0, Math.round(h - m - top)), gap: gap };
+    if (placed === 'above') top = Math.min(top, h);
+    return { left: Math.round(left), top: Math.round(top), width: Math.round(width), maxHeight: Math.max(0, Math.round(maxH === null ? h - m - top : maxH)), gap: gap, placed: placed };
+  }
+
+  // Bilgi kutusunun SOLUNA: üst kenarı kutunun üstüyle hizalı, genişlik kuralı belowRect ile aynı.
+  // Solda yer yoksa (box.left*w - gap < width + margin) belowRect'e (o da sığmazsa üste) düşer.
+  // Dönüş belowRect ile aynı biçimde; placed 'left' | 'below' | 'above'.
+  function leftRect(box, line, vw, vh, margin, contentHeight) {
+    var w = Math.max(1, num(vw, 1920)), h = Math.max(1, num(vh, 1080));
+    var m = Math.max(0, Math.min(num(margin, 48), Math.floor(w / 2) - 1));
+    var ln = num(line, 0.03);
+    if (!(ln > 0)) ln = 0.03;
+    var gap = Math.round(0.6 * ln * h);
+    var boxW = Math.max(0, (num(box.right, 0) - num(box.left, 0)) * w);
+    var width = Math.min(Math.max(boxW, 0.22 * w), w - 2 * m);
+    var boxLeft = num(box.left, 0) * w;
+    if (boxLeft - gap < width + m) return belowRect(box, line, vw, vh, margin, contentHeight);
+    var ch = Math.max(0, num(contentHeight, 0));
+    var top = clamp(num(box.top, 0) * h, m, Math.max(m, h - m - ch));
+    return { left: Math.round(boxLeft - gap - width), top: Math.round(top), width: Math.round(width), maxHeight: Math.max(0, Math.round(h - m - top)), gap: gap, placed: 'left' };
+  }
+
+  // Aynı bölgedeki kutular (telefon balonları) üst üste binmesin: rects = [{left, top, width, height}] sırayla gelir;
+  // bir kutu daha önce yerleşenlerden biriyle çakışırsa onun altına (+ gap) itilir. Yeni dizi döner, girdi değişmez.
+  function stackRects(rects, gap) {
+    var g = Math.max(0, num(gap, 8));
+    var out = [];
+    for (var i = 0; i < (rects || []).length; i++) {
+      var r = { left: rects[i].left, top: rects[i].top, width: rects[i].width, height: rects[i].height };
+      for (var j = 0; j < out.length; j++) {
+        var p = out[j];
+        var overlapX = r.left < p.left + p.width && p.left < r.left + r.width;
+        var overlapY = r.top < p.top + p.height && p.top < r.top + r.height;
+        if (overlapX && overlapY) r.top = p.top + p.height + g;
+      }
+      out.push(r);
+    }
+    return out;
   }
 
   // placement yoksa: üst %60'taki ve %40'tan dar kutu bilgi kutusu sayılır; placement 'below' ise kesin evet, başka değerse hayır.
   function isInfoItem(item) {
     if (!item || typeof item !== 'object') return false;
-    if (typeof item.placement === 'string') return item.placement === 'below';
+    if (typeof item.placement === 'string') return item.placement === 'below' || item.placement === 'left';
     var b = item.box;
     if (!b || item.paragraphs === true) return false;
     return num(b.top, 1) < 0.6 && (num(b.right, 1) - num(b.left, 0)) < 0.4;
@@ -234,6 +283,8 @@
     computeRect: computeRect,
     clampPosition: clampPosition,
     belowRect: belowRect,
+    leftRect: leftRect,
+    stackRects: stackRects,
     isInfoItem: isInfoItem,
     acceptSubtitle: acceptSubtitle,
     rgba: rgba

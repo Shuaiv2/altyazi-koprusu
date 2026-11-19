@@ -145,9 +145,13 @@
   eq(r2.left + r2.width, 1920 - 48, 'sağ kenarda sağ boşluğa dayanır');
   ok(r2.left >= 48, 'sol sınır içinde');
   var r3 = S.belowRect({ left: 0.1, top: 0.8, right: 0.3, bottom: 0.95 }, 0.02, 1920, 1080, 48, 200);
-  ok(r3.top >= 0.95 * 1080, 'altta: yukarı kayar ama kutunun altından yukarı çıkmaz');
-  eq(r3.top, Math.round(0.95 * 1080), 'altta üst = kutunun alt kenarı');
-  ok(r3.maxHeight <= 1080 - 48 - r3.top + 1, 'maxHeight alt boşlukla sınırlı');
+  eq(r3.placed, 'above', 'altta yer yok: kutunun üstüne');
+  eq(r3.top, Math.round(0.8 * 1080 - 0.6 * 0.02 * 1080 - 200), 'üstte: üst = kutu üstü - boşluk - yükseklik');
+  ok(r3.top + 200 <= 0.8 * 1080, 'üstteki içerik kutuyu örtmez');
+  var r3b = S.belowRect({ left: 0.1, top: 0.05, right: 0.3, bottom: 0.95 }, 0.02, 1920, 1080, 48, 200);
+  eq(r3b.placed, 'below', 'üstte de yer yoksa below kalır');
+  eq(r3b.top, Math.round(0.95 * 1080), 'üstte de yok: kutunun altından yukarı çıkmaz');
+  eq(r1.placed, 'below', 'normal durumda below');
   var r4 = S.belowRect({ left: 0.0, top: 0.2, right: 1.0, bottom: 0.3 }, 0.02, 1920, 1080, 48, 100);
   eq(r4.left, 48, 'çok geniş kutu: sol boşluk');
   eq(r4.width, 1920 - 96, 'çok geniş kutu: genişlik ekrana sıkıştırılır');
@@ -155,6 +159,43 @@
   ok(r5.top + 100 <= 1080 - 48, 'sığan içerik kaydırılmaz');
   eq(r5.top, r1.top, 'sığan içerikte üst değişmez');
   ok(S.isInfoItem({ placement: 'below', box: gtaBox }), 'placement below');
+  ok(S.isInfoItem({ placement: 'left', box: gtaBox }), 'placement left');
+
+  // --- leftRect ---
+  var lb = { left: 0.5, top: 0.3, right: 0.6, bottom: 0.4 };
+  var l1 = S.leftRect(lb, 0.02, 1920, 1080, 48, 100);
+  eq(l1.placed, 'left', 'solda yer var: left');
+  eq(l1.width, Math.round(0.22 * 1920), 'genişlik kuralı belowRect ile aynı');
+  eq(l1.top, Math.round(0.3 * 1080), 'üst kutunun üstüyle hizalı');
+  eq(l1.left + l1.width + l1.gap, Math.round(0.5 * 1920), 'sağ kenar = kutu solu - boşluk');
+  ok(l1.left >= 48, 'sol boşluk içinde');
+  var wideBox = { left: 0.6, top: 0.3, right: 0.9, bottom: 0.4 };
+  var l2 = S.leftRect(wideBox, 0.02, 1920, 1080, 48, 100);
+  eq(l2.width, Math.round(0.3 * 1920), 'geniş kutu: genişlik kutu kadar');
+  var l3 = S.leftRect(gtaBox, 0.02, 1920, 1080, 48, 100);
+  eq(l3.placed, 'below', 'solda yer yok: below');
+  eq(l3.top, S.belowRect(gtaBox, 0.02, 1920, 1080, 48, 100).top, 'fallback belowRect ile aynı');
+  var l4 = S.leftRect({ left: 0.02, top: 0.8, right: 0.1, bottom: 0.95 }, 0.02, 1920, 1080, 48, 200);
+  eq(l4.placed, 'above', 'solda ve altta yer yok: üste');
+  var l5 = S.leftRect({ left: 0.5, top: 0.9, right: 0.6, bottom: 0.95 }, 0.02, 1920, 1080, 48, 200);
+  eq(l5.placed, 'left', 'solda yer var');
+  eq(l5.top, 1080 - 48 - 200, 'alta taşan içerik ekran içine çekilir');
+  var l6 = S.leftRect({ left: 0.5, top: 0.0, right: 0.6, bottom: 0.05 }, 0.02, 1920, 1080, 48, 100);
+  eq(l6.top, 48, 'üst kenar boşluğuna çekilir');
+  eq(S.leftRect(lb, 0.02, 1920, 1080, 48, 0).placed, 'left', 'contentHeight 0 ile de çalışır');
+
+  // --- stackRects ---
+  var inR = [{ left: 100, top: 100, width: 300, height: 80 }, { left: 150, top: 120, width: 300, height: 60 }, { left: 800, top: 100, width: 200, height: 50 }, { left: 120, top: 400, width: 200, height: 40 }];
+  var st = S.stackRects(inR, 10);
+  eq(st[0].top, 100, 'ilk kutu yerinde');
+  eq(st[1].top, 190, 'çakışan kutu öncekinin altına + boşluk');
+  eq(st[2].top, 100, 'yatayda ayrık kutu yerinde');
+  eq(st[3].top, 400, 'çakışmayan kutu yerinde');
+  eq(inR[1].top, 120, 'girdi değişmez');
+  var st2 = S.stackRects([{ left: 0, top: 0, width: 100, height: 50 }, { left: 0, top: 0, width: 100, height: 50 }, { left: 0, top: 10, width: 100, height: 50 }], 8);
+  eq(st2[1].top, 58, 'ikinci: 50 + 8');
+  eq(st2[2].top, 116, 'üçüncü: ikincinin altına');
+  eq(S.stackRects([], 8).length, 0, 'boş dizi');
   ok(!S.isInfoItem({ placement: 'over', box: gtaBox }), 'placement başka -> hayır');
   ok(S.isInfoItem({ box: gtaBox }), 'placement yok, üst-sol dar kutu -> bilgi');
   ok(!S.isInfoItem({ box: { left: 0.1, top: 0.8, right: 0.3, bottom: 0.9 } }), 'placement yok, alttaki kutu -> hayır');

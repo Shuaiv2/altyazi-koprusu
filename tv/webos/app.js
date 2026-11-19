@@ -6,7 +6,7 @@
   'use strict';
 
   // TV uygulamasının sürümü: appinfo.json, tv-tizen/config.xml ve tv-android/app/build.gradle ile aynı tutulur.
-  var APP_VERSION = '1.4.0';
+  var APP_VERSION = '1.5.0';
   var t = window.t;
   var config = window.GAMETRANSLATOR_CONFIG || window.GAMETRANSLATOR_CONFIG || {};
   var platform = window.GAMETRANSLATOR_PLATFORM || window.GAMETRANSLATOR_PLATFORM;
@@ -303,14 +303,34 @@
   // Bilgisayar ekranın tamamını okuyup her yazı grubunun çevirisini yeriyle gönderir. Her çeviri kendi İngilizce
   // yazısını örter; yazı boyu o yazının satır yüksekliğinden seçilir, Türkçe uzun gelirse sığana kadar küçülür.
 
-  var screenTimer = null;
   var SCREEN_PAD = 0.004;
   var SCREEN_MIN_FONT = 14;
+  var STACK_GAP = 8;
+  // Bölge (region) başına ayrı kap ve süre sayacı: 'info' (eski Mac'te bölge yoksa), 'phone' vb.
+  var screenRegions = {};
 
-  function showScreen(items, duration) {
-    var host = $('screen');
-    host.innerHTML = '';
-    host.className = '';
+  function regionName(region) {
+    return typeof region === 'string' && region ? region : 'info';
+  }
+
+  function regionEnabled(name) {
+    return load(name === 'phone' ? 'phoneMessages' : 'infoBoxes') !== '0';
+  }
+
+  function updateScreenHost() {
+    var any = false;
+    for (var k in screenRegions) if (screenRegions.hasOwnProperty(k)) any = true;
+    $('screen').className = any ? '' : 'hidden';
+  }
+
+  function showScreen(items, duration, region) {
+    var name = regionName(region);
+    hideScreen(name);
+    var host = document.createElement('div');
+    host.className = 'screen-region';
+    host.setAttribute('data-region', name);
+    $('screen').appendChild(host);
+    var infoPlaced = [];
     var width = window.innerWidth || 1920;
     var height = window.innerHeight || 1080;
     var anyFull = false;
@@ -319,7 +339,7 @@
       var box = validBox(item && item.box);
       if (!box || !item.text) continue;
       if (SUB.isInfoItem(item)) {
-        if (load('infoBoxes') !== '0') showInfoItem(host, item, box, width, height);
+        if (regionEnabled(name)) infoPlaced.push(showInfoItem(host, item, box, width, height));
         continue;
       }
       anyFull = true;
@@ -346,13 +366,24 @@
     }
     // "Ekran çevriliyor…" yazısı tam ekran sonuçlarının üstünde kalmasın; yalnız bilgi kutusu gelirse ana altyazı korunur.
     if (anyFull) hideSubtitle('screen');
-    clearTimeout(screenTimer);
-    screenTimer = setTimeout(hideScreen, duration || 20000);
+    // Aynı bölgedeki bilgi kutuları (telefon balonları) üst üste binmesin: sırayla aşağı it.
+    if (infoPlaced.length > 1) {
+      var rects = [];
+      for (var r = 0; r < infoPlaced.length; r++) rects.push(infoPlaced[r].rect);
+      var stacked = SUB.stackRects(rects, STACK_GAP);
+      for (var q = 0; q < infoPlaced.length; q++) infoPlaced[q].el.style.top = stacked[q].top + 'px';
+    }
+    screenRegions[name] = { el: host, timer: setTimeout(function () { hideScreen(name); }, duration || 20000) };
+    updateScreenHost();
   }
 
   // Bilgi kutusu çevirisi: İngilizce kutunun altında ayrı blok; ana altyazıya dokunmaz.
   var INFO_MAX_LINES = 6;
   var INFO_MIN_FONT = 16;
+
+  function infoRect(placement, box, line, width, height, margin, contentHeight) {
+    return placement === 'left' ? SUB.leftRect(box, line, width, height, margin, contentHeight) : SUB.belowRect(box, line, width, height, margin, contentHeight);
+  }
 
   function showInfoItem(host, item, box, width, height) {
     var s = curSub();
@@ -365,28 +396,40 @@
     el.style.background = SUB.rgba(s.bgColor, opacity);
     el.style.color = s.textColor;
     var size = Math.max(26, Math.round(0.9 * line * height));
-    var rect = SUB.belowRect(box, line, width, height, margin, 0);
+    var rect = infoRect(item.placement, box, line, width, height, margin, 0);
     el.style.left = rect.left + 'px';
     el.style.width = rect.width + 'px';
     el.style.top = rect.top + 'px';
     host.appendChild(el);
     for (var guard = 0; guard < 60; guard++) {
       el.style.fontSize = size + 'px';
-      rect = SUB.belowRect(box, line, width, height, margin, el.offsetHeight);
+      rect = infoRect(item.placement, box, line, width, height, margin, el.offsetHeight);
+      el.style.left = rect.left + 'px';
+      el.style.width = rect.width + 'px';
       el.style.top = rect.top + 'px';
       var maxLines = size * 1.25 * INFO_MAX_LINES + 12;
       if ((el.offsetHeight <= rect.maxHeight && el.offsetHeight <= maxLines) || size <= INFO_MIN_FONT) break;
       size -= 2;
     }
+    return { el: el, rect: { left: rect.left, top: rect.top, width: rect.width, height: el.offsetHeight } };
   }
 
   // Yalnız geliştirme önizlemesi (dev-preview ?demoInfo=1) için.
-  window.GT_DEBUG_SCREEN = function (data) { showScreen(data.items, data.duration); };
+  window.GT_DEBUG_SCREEN = function (data) { showScreen(data.items, data.duration, data.region); };
 
-  function hideScreen() {
-    clearTimeout(screenTimer);
-    $('screen').className = 'hidden';
-    $('screen').innerHTML = '';
+  // region verilmezse hepsi temizlenir (eski davranış).
+  function hideScreen(region) {
+    var names = [];
+    if (typeof region === 'string' && region) names.push(region);
+    else for (var k in screenRegions) if (screenRegions.hasOwnProperty(k)) names.push(k);
+    for (var i = 0; i < names.length; i++) {
+      var r = screenRegions[names[i]];
+      if (!r) continue;
+      clearTimeout(r.timer);
+      if (r.el.parentNode) r.el.parentNode.removeChild(r.el);
+      delete screenRegions[names[i]];
+    }
+    updateScreenHost();
   }
 
   // Konum hem GameTranslator uygulamasından hem kumandanın oklarıyla ayarlanır. Kumandayla
@@ -840,8 +883,16 @@
       showSubtitle(data.text, data.duration, data.box, data.paragraphs === true, data.source, data.line);
     });
     onEvent('clear', onClear);
-    onEvent('screen', function (data) { showScreen(data.items, data.duration); });
-    onEvent('screen-clear', hideScreen);
+    onEvent('screen', function (data) { showScreen(data.items, data.duration, data.region); });
+    // screen-clear verisi boş/bozuk olabilir (eski Mac): o zaman hepsini temizle.
+    eventSource.addEventListener('screen-clear', function (e) {
+      var region = null;
+      try {
+        var d = JSON.parse(e.data);
+        if (d && typeof d.region === 'string' && d.region) region = d.region;
+      } catch (err) { region = null; }
+      hideScreen(region);
+    });
     onEvent('style', applyStyle);
     onEvent('layout', handleLayout);
     onEvent('speech', function (data) { if (data.url) playSpeech(server + data.url); });
@@ -1249,6 +1300,7 @@
       { label: t('mSettings'), value: '▶', ok: openSettings },
       { label: t('mTest'), value: testOn ? t('mOn') : t('mOff'), ok: toggleTest, left: toggleTest, right: toggleTest },
       { label: t('mInfoBoxes'), value: load('infoBoxes') === '0' ? t('mOff') : t('mOn'), ok: toggleInfoBoxes, left: toggleInfoBoxes, right: toggleInfoBoxes },
+      { label: t('mPhoneMessages'), value: load('phoneMessages') === '0' ? t('mOff') : t('mOn'), ok: togglePhoneMessages, left: togglePhoneMessages, right: togglePhoneMessages },
       ipItem,
       { label: t('mScan'), value: scanning ? t('mScanStarted') : '', cls: 'action', ok: rescan },
       { label: t('mHdmi'), value: '◀ ' + hdmiPort + ' ▶', left: function () { stepHdmi(-1); }, right: function () { stepHdmi(1); }, ok: function () { stepHdmi(1); } },
@@ -1261,7 +1313,14 @@
   function toggleInfoBoxes() {
     var on = load('infoBoxes') === '0';
     save('infoBoxes', on ? '1' : '0');
-    if (!on) hideScreen();
+    if (!on) hideScreen('info');
+    renderMenu();
+  }
+
+  function togglePhoneMessages() {
+    var on = load('phoneMessages') === '0';
+    save('phoneMessages', on ? '1' : '0');
+    if (!on) hideScreen('phone');
     renderMenu();
   }
 
