@@ -6,7 +6,7 @@
   'use strict';
 
   // TV uygulamasının sürümü: appinfo.json, tv-tizen/config.xml ve tv-android/app/build.gradle ile aynı tutulur.
-  var APP_VERSION = '1.5.0';
+  var APP_VERSION = '1.6.0';
   var t = window.t;
   var config = window.GAMETRANSLATOR_CONFIG || window.GAMETRANSLATOR_CONFIG || {};
   var platform = window.GAMETRANSLATOR_PLATFORM || window.GAMETRANSLATOR_PLATFORM;
@@ -314,7 +314,7 @@
   }
 
   function regionEnabled(name) {
-    return load(name === 'phone' ? 'phoneMessages' : 'infoBoxes') !== '0';
+    return load(SUB.toggleKeyForRegion(name)) !== '0';
   }
 
   function updateScreenHost() {
@@ -338,6 +338,10 @@
       var item = items[i];
       var box = validBox(item && item.box);
       if (!box || !item.text) continue;
+      if (SUB.isOverItem(item)) {
+        if (regionEnabled(name)) infoPlaced.push(showOverItem(host, item, box, width, height));
+        continue;
+      }
       if (SUB.isInfoItem(item)) {
         if (regionEnabled(name)) infoPlaced.push(showInfoItem(host, item, box, width, height));
         continue;
@@ -409,6 +413,33 @@
       el.style.top = rect.top + 'px';
       var maxLines = size * 1.25 * INFO_MAX_LINES + 12;
       if ((el.offsetHeight <= rect.maxHeight && el.offsetHeight <= maxLines) || size <= INFO_MIN_FONT) break;
+      size -= 2;
+    }
+    return { el: el, rect: { left: rect.left, top: rect.top, width: rect.width, height: el.offsetHeight } };
+  }
+
+  // "over": Türkçe kutu İngilizce kutuyu tam örter (opak zemin); uzunsa aşağı, alta sığmazsa yukarı uzar.
+  function showOverItem(host, item, box, width, height) {
+    var s = curSub();
+    var line = typeof item.line === 'number' && item.line > 0 ? item.line : 0.03;
+    var margin = Math.min(s.margin, Math.floor(width / 2) - 1);
+    var el = document.createElement('div');
+    el.className = 'info-item over-item';
+    el.textContent = item.text;
+    el.style.background = SUB.rgba(s.bgColor, Math.max(s.bgOpacity, 92));
+    el.style.color = s.textColor;
+    var size = SUB.overFontSize(line, height, s.fontSize);
+    var rect = SUB.overRect(box, line, width, height, margin, 0);
+    host.appendChild(el);
+    for (var guard = 0; guard < 60; guard++) {
+      el.style.fontSize = size + 'px';
+      el.style.left = rect.left + 'px';
+      el.style.width = rect.width + 'px';
+      el.style.minHeight = rect.height + 'px';
+      el.style.top = rect.top + 'px';
+      rect = SUB.overRect(box, line, width, height, margin, el.offsetHeight);
+      el.style.top = rect.top + 'px';
+      if (el.offsetHeight <= rect.maxHeight || size <= INFO_MIN_FONT) break;
       size -= 2;
     }
     return { el: el, rect: { left: rect.left, top: rect.top, width: rect.width, height: el.offsetHeight } };
@@ -1310,17 +1341,23 @@
     return items;
   }
 
+  function hideRegionsByKey(key) {
+    var names = [];
+    for (var k in screenRegions) if (screenRegions.hasOwnProperty(k) && SUB.toggleKeyForRegion(k) === key) names.push(k);
+    for (var i = 0; i < names.length; i++) hideScreen(names[i]);
+  }
+
   function toggleInfoBoxes() {
     var on = load('infoBoxes') === '0';
     save('infoBoxes', on ? '1' : '0');
-    if (!on) hideScreen('info');
+    if (!on) hideRegionsByKey('infoBoxes');
     renderMenu();
   }
 
   function togglePhoneMessages() {
     var on = load('phoneMessages') === '0';
     save('phoneMessages', on ? '1' : '0');
-    if (!on) hideScreen('phone');
+    if (!on) hideRegionsByKey('phoneMessages');
     renderMenu();
   }
 

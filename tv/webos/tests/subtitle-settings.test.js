@@ -184,6 +184,38 @@
   eq(l6.top, 48, 'üst kenar boşluğuna çekilir');
   eq(S.leftRect(lb, 0.02, 1920, 1080, 48, 0).placed, 'left', 'contentHeight 0 ile de çalışır');
 
+  // --- overRect / bölge anahtarları ---
+  var obj = S.overRect({ left: 0.375, top: 0.946, right: 0.625, bottom: 0.977 }, 0.031, 1920, 1080, 48, 0);
+  eq(obj.left, 720, 'objective sol'); eq(obj.width, 480, 'objective genişlik');
+  eq(obj.top, 1022, 'objective: içerik kutudan kısa, top = kutu üstü');
+  var objTall = S.overRect({ left: 0.375, top: 0.946, right: 0.625, bottom: 0.977 }, 0.031, 1920, 1080, 48, 90);
+  ok(objTall.top + 90 <= 1080 - 8, 'objective uzun içerik: ekran dışına çıkmaz');
+  ok(objTall.top < 1022, 'objective uzun içerik yukarı uzar');
+  ok(objTall.top + 90 >= Math.round(0.977 * 1080) - 1, 'objective: alt kenar İngilizce kutunun altını örter');
+  ok(obj.top + 34 >= 1055 - 1 && obj.top <= 1022, 'objective kısa içerik: kutuyu örter');
+  var desc = S.overRect({ left: 0.547, top: 0.483, right: 0.801, bottom: 0.581 }, 0.026, 1920, 1080, 48, 150);
+  eq(desc.top, Math.round(0.483 * 1080), 'description: aşağı uzar, üst sabit');
+  eq(desc.left, Math.round(0.547 * 1920), 'description sol');
+  ok(desc.left + desc.width <= 1920 - 48, 'description sağ sınır içinde');
+  var nar = S.overRect({ left: 0.5, top: 0.3, right: 0.52, bottom: 0.33 }, 0.02, 1920, 1080, 48, 0);
+  eq(nar.width, Math.round(0.18 * 1920), 'dar kutu en az %18 genişlik');
+  var edge = S.overRect({ left: 0.95, top: 0.3, right: 0.99, bottom: 0.33 }, 0.02, 1920, 1080, 48, 0);
+  eq(edge.left + edge.width, 1920 - 48, 'sağ kenarda sıkıştırılır');
+  var topEdge = S.overRect({ left: 0.1, top: 0.0, right: 0.3, bottom: 0.03 }, 0.02, 1920, 1080, 48, 2000);
+  ok(topEdge.top >= 8, 'üst kenar boşluğu');
+  eq(S.overFontSize(0.031, 1080, 44), 25, 'over yazı boyu 0.75 x satır');
+  eq(S.overFontSize(0.01, 1080, 44), 18, 'alt sınır 18');
+  eq(S.overFontSize(0.1, 1080, 44), 44, 'üst sınır kullanıcı boyu');
+  ok(S.isOverItem({ placement: 'over' }) && !S.isOverItem({ placement: 'below' }), 'isOverItem');
+  eq(S.toggleKeyForRegion('phone'), 'phoneMessages', 'phone'); eq(S.toggleKeyForRegion('notify'), 'phoneMessages', 'notify');
+  eq(S.toggleKeyForRegion('objective'), 'infoBoxes', 'objective'); eq(S.toggleKeyForRegion('description'), 'infoBoxes', 'description');
+  eq(S.toggleKeyForRegion('info'), 'infoBoxes', 'info');
+  var nl = S.leftRect({ left: 0.80, top: 0.85, right: 0.97, bottom: 0.95 }, 0.026, 1920, 1080, 48, 100);
+  ok(nl.left >= 48 && nl.left + nl.width <= 1920 - 48 && nl.top + 100 <= 1080 - 48, 'notify sığar');
+  // Aynı bölgede çakışmayan over kutuları itilmez
+  var two = S.stackRects([{ left: 720, top: 1022, width: 480, height: 40 }, { left: 1050, top: 520, width: 487, height: 100 }], 8);
+  eq(two[0].top, 1022, 'over kutusu itilmez'); eq(two[1].top, 520, 'ikinci de yerinde');
+
   // --- stackRects ---
   var inR = [{ left: 100, top: 100, width: 300, height: 80 }, { left: 150, top: 120, width: 300, height: 60 }, { left: 800, top: 100, width: 200, height: 50 }, { left: 120, top: 400, width: 200, height: 40 }];
   var st = S.stackRects(inR, 10);

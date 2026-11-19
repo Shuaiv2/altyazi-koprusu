@@ -232,6 +232,45 @@
     return { left: Math.round(boxLeft - gap - width), top: Math.round(top), width: Math.round(width), maxHeight: Math.max(0, Math.round(h - m - top)), gap: gap, placed: 'left' };
   }
 
+  // Türkçe metin İngilizce kutunun TAM ÜSTÜNÜ örter: left = box.left, top = box.top, genişlik = max(kutu, %18 ekran) ekran içine sıkıştırılır.
+  // İçerik kutudan uzunsa aşağı uzar; alt kenar boşluğuna taşacaksa alt kenar kutunun altında kalacak şekilde YUKARI uzar.
+  // Dönüş: { left, top, width, height, maxHeight, placed:'over' } (px); height = kutu yüksekliği (en az), maxHeight = sığabilecek en çok yükseklik.
+  function overRect(box, line, vw, vh, margin, contentHeight) {
+    var w = Math.max(1, num(vw, 1920)), h = Math.max(1, num(vh, 1080));
+    var m = Math.max(0, Math.min(num(margin, 48), Math.floor(w / 2) - 1));
+    var boxW = Math.max(0, (num(box.right, 0) - num(box.left, 0)) * w);
+    var width = Math.min(Math.max(boxW, 0.18 * w), w - 2 * m);
+    var left = clamp(num(box.left, 0) * w, m, w - m - width);
+    // Dikeyde örtmek esastır: İngilizce kutu zaten kenar boşluğuna taşabilir (alt satır y≈0.977), bu yüzden dikey pay en çok 8 px.
+    var vm = Math.min(m, 8);
+    var boxTop = num(box.top, 0) * h;
+    var boxBottom = Math.max(boxTop, num(box.bottom, 0) * h);
+    var boxH = boxBottom - boxTop;
+    var ch = Math.max(boxH, num(contentHeight, 0));
+    var top = boxTop;
+    if (top + ch > h - vm) top = Math.max(vm, boxBottom - ch);
+    if (top + ch > h - vm) top = Math.max(vm, h - vm - ch);
+    var maxH = Math.max(h - vm - boxTop, boxBottom - vm);
+    return { left: Math.round(left), top: Math.round(top), width: Math.round(width), height: Math.round(boxH), maxHeight: Math.max(0, Math.round(maxH)), placed: 'over' };
+  }
+
+  // "over" yazı boyu: İngilizce satır yüksekliğinden (0..1) türetilir, 18 ile kullanıcının altyazı boyu arasına sıkışır.
+  function overFontSize(line, vh, userFont) {
+    var ln = num(line, 0.03);
+    if (!(ln > 0)) ln = 0.03;
+    var px = Math.round(0.75 * ln * Math.max(1, num(vh, 1080)));
+    return clamp(px, 18, Math.max(18, num(userFont, 44)));
+  }
+
+  function isOverItem(item) {
+    return !!item && typeof item === 'object' && item.placement === 'over';
+  }
+
+  // Bölge -> menü anahtarı: 'phone' ve 'notify' telefonMesajları, geri kalan bölgeler bilgi kutuları anahtarına bağlı.
+  function toggleKeyForRegion(region) {
+    return (region === 'phone' || region === 'notify') ? 'phoneMessages' : 'infoBoxes';
+  }
+
   // Aynı bölgedeki kutular (telefon balonları) üst üste binmesin: rects = [{left, top, width, height}] sırayla gelir;
   // bir kutu daha önce yerleşenlerden biriyle çakışırsa onun altına (+ gap) itilir. Yeni dizi döner, girdi değişmez.
   function stackRects(rects, gap) {
@@ -284,6 +323,10 @@
     clampPosition: clampPosition,
     belowRect: belowRect,
     leftRect: leftRect,
+    overRect: overRect,
+    overFontSize: overFontSize,
+    isOverItem: isOverItem,
+    toggleKeyForRegion: toggleKeyForRegion,
     stackRects: stackRects,
     isInfoItem: isInfoItem,
     acceptSubtitle: acceptSubtitle,
