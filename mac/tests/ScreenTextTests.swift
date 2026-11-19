@@ -177,6 +177,16 @@ var tr4 = ScreenTracker()
 let nb = blk(.notify, "Map updated", slot: "notify-top"), nm = blk(.notify, "Hey I'm at the bank.", slot: "notify-bottom")
 _ = tr4.feed([nb, nm], mode: .game, at: 0)
 expect(tr4.feed([nb, nm], mode: .game, at: 1).count == 2, "iki yuva birlikte çevrilir")
+// kayarak gelen bildirim: önce yarım metin çevrilir, tamamlanınca güncellenir; sonra tekrar gönderilmez
+var tr5 = ScreenTracker()
+let p1 = blk(.notify, "Hey I'm at the bank. Let", slot: "notify-bottom")
+let p2 = blk(.notify, "Hey I'm at the bank. Let's set up this account.", slot: "notify-bottom")
+_ = tr5.feed([p1], mode: .game, at: 0)
+expect(tr5.feed([p1], mode: .game, at: 1) == [.translate(p1)], "yarım bildirim çevrilir")
+// tam metin yarımdan yeterince farklıysa önce 2 geçiş kararlı olmalı; en geç ikinci geçişte gönderilir
+let a2 = tr5.feed([p2], mode: .game, at: 2), a3 = tr5.feed([p2], mode: .game, at: 3)
+expect((a2 + a3) == [.translate(p2)], "tamamlanan bildirim bir kez güncellenir: \(a2) \(a3)")
+expect(tr5.feed([p2], mode: .game, at: 4) == [], "tam metin tekrar gönderilmez")
 
 print("\(total - failures)/\(total) test geçti")
 exit(failures == 0 ? 0 : 1)

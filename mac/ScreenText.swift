@@ -259,10 +259,12 @@ public struct ScreenTracker {
             var t = tracks[b.slot] ?? Track(kind: b.kind)
             t.absentSince = nil
             let norm = TextMatch.normalize((b.title.map { $0 + " " } ?? "") + b.text)
-            if !t.candidate.isEmpty, TextMatch.isSimilar(t.candidate, norm, threshold: Self.similarity) { t.stable += 1 } else { t.candidate = norm; t.stable = 1 }
+            if !t.candidate.isEmpty, TextMatch.isSimilar(t.candidate, norm, threshold: Self.similarity) { t.stable += 1 } else { t.stable = 1 }
+            t.candidate = norm   // her zaman en son okunanı tut (kayarak gelen bildirim tamamlanınca güncellensin)
             if t.stable >= 2 {
-                if t.visible, let s = t.shown, TextMatch.isSimilar(s, norm, threshold: Self.similarity) {
-                    // aynı metin ekranda: yeniden gönderme
+                if t.visible, let s = t.shown, TextMatch.isSimilar(s, norm, threshold: Self.similarity),
+                   norm.count < s.count + 3 {
+                    // aynı metin ekranda (uzamadı): yeniden gönderme
                 } else {
                     t.shown = norm; t.visible = true
                     actions.append(.translate(b))
