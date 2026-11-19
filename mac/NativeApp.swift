@@ -89,6 +89,7 @@ public final class NativeSubtitleServer: @unchecked Sendable {
     private var clients: [ObjectIdentifier: NWConnection] = [:]
     private var viewers: Set<ObjectIdentifier> = []
     private var lastStyle: SubtitleStyle = SubtitleStyle()
+    private var styleSentOnce = false
     private var pingTimer: DispatchSourceTimer?
     // Seçili çeviri sağlayıcısının adı; TV "Çeviri sağlayıcısı" satırında gösterir. Anahtar değil, yalnız ad.
     private let providerLock = NSLock()
@@ -228,6 +229,9 @@ public final class NativeSubtitleServer: @unchecked Sendable {
     public func sendStyle(_ style: SubtitleStyle) {
         let p = provider
         queue.async {
+            // Değişmediyse yayınlama (TV'ye saniyede onlarca gereksiz style olayı gidiyordu).
+            guard self.lastStyle != style || !self.styleSentOnce else { return }
+            self.styleSentOnce = true
             self.lastStyle = style
             self.broadcast(event: "style", json: self.styleJSON(withProvider: p))
         }
@@ -2867,14 +2871,27 @@ final class AppState {
                     lines.append(OCRLine(text: top.string.trimmingCharacters(in: .whitespacesAndNewlines), box: obs.boundingBox, confidence: top.confidence))
                 }
             }
-            // Düğme ipuçlarını ve çöp satırları bilgi kutusunda da ele.
-            lines = SubtitleFilter.evaluate(lines, options: { var o = SubtitleFilter.Options(); o.useGeometry = false; o.dropShortCaps = false; return o }()).kept
+            let dbg = SubtitleDebug.enabled
+            if dbg { for l in lines { SubtitleDebug.log("bilgi: ham satır \"\(l.text)\" güven=\(String(format: "%.2f", l.confidence))") } }
+            // Çöp satırlar elenir; düğme ipucu satırları ("Hold [L1] + [R1] to ...") bilgi kutusunda KALIR.
+            let verdict = SubtitleFilter.evaluate(lines, options: { var o = SubtitleFilter.Options(); o.useGeometry = false; o.dropShortCaps = false; o.dropButtonPrompts = false; return o }())
+            if dbg { for d in verdict.dropped { SubtitleDebug.log("bilgi: elendi [\(d.reason.rawValue)] \(d.line.text)") } }
+            lines = verdict.kept
             let block = InfoBox.bestBlock(from: lines, region: region)
+            if dbg { SubtitleDebug.log("bilgi: blok metni: \(block.map { "\"\($0.text)\"" } ?? "yok")") }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.isProcessingInfo = false
                 guard self.isRunning, self.infoEnabled, seq == self.infoSeq else { return }
-                switch self.infoTracker.feed(block) {
+                let action = self.infoTracker.feed(block, at: ProcessInfo.processInfo.systemUptime)
+                if dbg {
+                    switch action {
+                    case .none: SubtitleDebug.log("bilgi: izleyici -> none")
+                    case .clear: SubtitleDebug.log("bilgi: izleyici -> clear")
+                    case .translate: SubtitleDebug.log("bilgi: izleyici -> translate")
+                    }
+                }
+                switch action {
                 case .none: break
                 case .clear:
                     self.infoSeq += 1
@@ -2888,6 +2905,9 @@ final class AppState {
                         await MainActor.run {
                             guard mySeq == self.infoSeq, self.isRunning else { return }
                             guard let turkish = result.text else { self.infoTracker.forgetShown(); return }
+                            if dbg, GlyphNormalizer.tokens(in: b.text) != GlyphNormalizer.tokens(in: turkish) {
+                                SubtitleDebug.log("bilgi: düğme belirteci uyuşmazlığı kaynak=\(GlyphNormalizer.tokens(in: b.text)) çeviri=\(GlyphNormalizer.tokens(in: turkish)) (yine de gönderildi)")
+                            }
                             self.liveInfo = turkish
                             let box: [String: Double] = [
                                 "left": Double(b.box.minX), "top": Double(b.box.minY),

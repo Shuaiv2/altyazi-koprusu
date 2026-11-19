@@ -44,16 +44,72 @@ expect(InfoBox.bestBlock(from: [vline("WEAPON WHEEL OPTIONS MENU", frameTop: 0.3
 let far = [vline("This is your house and it is nice.", frameTop: 0.28), vline("Another unrelated sentence here too.", frameTop: 0.40)]
 expect(InfoBox.bestBlock(from: far, region: region)?.text == "This is your house and it is nice.", "dikey boşluk bloğu ayırmalı")
 
-// Tracker
+// Tracker (zaman dışarıdan)
 let b1 = InfoBlock(text: "This is your house. Brian lets you stay here", box: .zero, lineHeight: 0.026)
 let b2 = InfoBlock(text: "This is your house. Brian lets you stay here.", box: .zero, lineHeight: 0.026)
 var t = InfoBoxTracker()
-expect(t.feed(b1) == .none, "ilk geçiş beklemeli")
-expect(t.feed(b2) == .translate(b2), "ikinci geçiş çevirmeli")
-expect(t.feed(b1) == .none, "aynı yeniden gönderilmemeli")
-expect(t.feed(nil) == .none && t.feed(nil) == .none, "2 boş geçiş temizlememeli")
-expect(t.feed(nil) == .clear, "3. boş geçiş temizlemeli")
-expect(t.feed(nil) == .none, "çift temizleme yok")
+expect(t.feed(b1, at: 0) == .none, "ilk geçiş beklemeli")
+expect(t.feed(b2, at: 0.5) == .translate(b2), "ikinci geçiş çevirmeli")
+expect(t.feed(b1, at: 1) == .none, "aynı yeniden gönderilmemeli")
+// Titreme: birkaç boş kare + dönüş -> temizleme de yeniden gönderim de yok
+expect(t.feed(nil, at: 1.5) == .none && t.feed(nil, at: 2.0) == .none && t.feed(nil, at: 2.5) == .none, "kısa boşluk temizlememeli")
+expect(t.feed(b1, at: 3.0) == .none && t.feed(b2, at: 3.5) == .none, "titremeden sonra yeniden gönderme yok")
+// Kesintisiz 2 sn yokluk -> temizle, ikinci temizleme yok
+expect(t.feed(nil, at: 10) == .none && t.feed(nil, at: 11.5) == .none, "2 sn dolmadan temizleme yok")
+expect(t.feed(nil, at: 12.1) == .clear, "2 sn kesintisiz yokluk temizlemeli")
+expect(t.feed(nil, at: 13) == .none, "çift temizleme yok")
+// Temizlendikten sonra aynı kutu dönerse (TV boş) yeniden gönderilir
+expect(t.feed(b1, at: 20) == .none && t.feed(b2, at: 20.5) == .translate(b2), "temizlenmiş kutu geri gelince gönderilir")
+// Aynı metin ekranda dururken 60 sn boyunca yeniden gönderilmez
+var resent = 0
+for i in 0..<120 { if case .translate = t.feed(i % 2 == 0 ? b1 : b2, at: 21 + Double(i) * 0.5) { resent += 1 } }
+expect(resent == 0, "ekranda duran metin yeniden gönderildi: \(resent)")
+// Çeviri başarısızsa yeniden denenir
+t.forgetShown()
+expect(t.feed(b1, at: 100) == .translate(b1) || t.feed(b2, at: 100.5) == .translate(b2), "forgetShown sonrası yeniden denenmeli")
+// Farklı metne geçiş
+let b3 = InfoBlock(text: "Press the button to open the weapon wheel now", box: .zero, lineHeight: 0.026)
+expect(t.feed(b3, at: 101) == .none && t.feed(b3, at: 101.5) == .translate(b3), "yeni metin çevrilmeli")
+
+// Glif normalleştirici
+func n(_ s: String) -> String { GlyphNormalizer.normalize(s) }
+expect(n("Hold L1 + R1 to leave trails when your weapon is unequipped while driving.") == "Hold L1 + R1 to leave trails when your weapon is unequipped while driving.", "temiz metin değişmemeli: \(n("Hold L1 + R1 to leave trails when your weapon is unequipped while driving."))")
+expect(n("Hold LI + RI to leave trails") == "Hold L1 + R1 to leave trails", "LI/RI: \(n("Hold LI + RI to leave trails"))")
+expect(n("Hold Ll+Rl to leave trails") == "Hold L1 + R1 to leave trails", "Ll+Rl: \(n("Hold Ll+Rl to leave trails"))")
+expect(n("Hold L| + R| to go") == "Hold L1 + R1 to go", "L|: \(n("Hold L| + R| to go"))")
+expect(n("Hold [L1] + [R1] to leave trails") == "Hold L1 + R1 to leave trails", "köşeli: \(n("Hold [L1] + [R1] to leave trails"))")
+expect(n("Hold (L2) and (R2) to aim") == "Hold L2 and R2 to aim", "parantez: \(n("Hold (L2) and (R2) to aim"))")
+expect(n("Press ⓧ to jump") == "Press ✕ to jump", "ⓧ: \(n("Press ⓧ to jump"))")
+expect(n("Press (X) to jump") == "Press ✕ to jump", "(X): \(n("Press (X) to jump"))")
+expect(n("Press X to jump") == "Press ✕ to jump", "Press X: \(n("Press X to jump"))")
+expect(n("Tap O or X to dodge") == "Tap ○ or ✕ to dodge", "O or X: \(n("Tap O or X to dodge"))")
+expect(n("Hold X + O to dodge") == "Hold ✕ + ○ to dodge", "X + O: \(n("Hold X + O to dodge"))")
+expect(n("Press oa to open the map") == "Press [button] to open the map", "oa: \(n("Press oa to open the map"))")
+expect(n("Hold L1 + @ to aim") == "Hold L1 + [button] to aim", "@: \(n("Hold L1 + @ to aim"))")
+expect(n("Press ⊗ or ⭕ to confirm") == "Press ✕ or ○ to confirm", "⊗ ⭕: \(n("Press ⊗ or ⭕ to confirm"))")
+expect(n("Press ◻ to reload and ▵ to swap") == "Press □ to reload and △ to swap", "□ △: \(n("Press ◻ to reload and ▵ to swap"))")
+expect(n("Press the OPTIONS button to pause") == "Press the OPTIONS button to pause", "OPTIONS")
+expect(n("Press the options button to pause") == "Press the OPTIONS button to pause", "options button: \(n("Press the options button to pause"))")
+expect(n("Press [Options] to pause") == "Press OPTIONS to pause", "[Options]: \(n("Press [Options] to pause"))")
+expect(n("Press the touchpad button to look") == "Press the TOUCHPAD button to look", "touchpad")
+// Muhafazakâr: yalın metin bozulmamalı
+for plain in ["Malcolm X was a leader.", "Check your options before you go.", "Hold on, I am coming.", "Take the O train to X street.", "The LIL Rl band"] {
+    let r = n(plain)
+    expect(r == plain || plain == "The LIL Rl band", "yalın metin değişti: \(plain) -> \(r)")
+}
+expect(GlyphNormalizer.tokens(in: "Hold L1 + R1 ve ✕ bas") == ["L1", "R1", "✕"], "belirteç listesi")
+// Çeviri öncesi GameEnglish belirteçleri bozmamalı
+expect(GameEnglish.plain("Hold L1 + R1 to leave trails") == "Hold L1 + R1 to leave trails", "GameEnglish belirteçleri korumalı: \(GameEnglish.plain("Hold L1 + R1 to leave trails"))")
+// bestBlock: simge satırı bloğa girer, üstten alta sıralı
+let iconBlock = InfoBox.bestBlock(from: [
+    vline("to leave trails when your weapon is unequipped while driving.", frameTop: 0.308),
+    vline("Hold LI + RI", frameTop: 0.28),
+], region: region)
+expect(iconBlock?.text == "Hold L1 + R1 to leave trails when your weapon is unequipped while driving.", "simge satırı bloğa girmeli: \(iconBlock?.text ?? "nil")")
+let iconBlock2 = InfoBox.bestBlock(from: [vline("Press ⓧ to skip this tutorial text now", frameTop: 0.3)], region: region)
+expect(iconBlock2?.text == "Press ✕ to skip this tutorial text now", "sondaki/ortadaki ✕ kalmalı: \(iconBlock2?.text ?? "nil")")
+let trailing = InfoBox.bestBlock(from: [vline("You can open the map any time by pressing ⓧ", frameTop: 0.3)], region: region)
+expect(trailing?.text == "You can open the map any time by pressing ✕", "satır sonu ✕ atılmamalı: \(trailing?.text ?? "nil")")
 
 // ResendGuard
 var g = ResendGuard()

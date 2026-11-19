@@ -13,6 +13,110 @@ public struct InfoBlock: Equatable {
     public var lineHeight: Double
 }
 
+/// PlayStation düğme simgelerinin OCR okumalarını cümle içinde kararlı belirteçlere çevirir.
+/// Biçim: "L1" "R1" "L2" "R2" "L3" "R3" "OPTIONS" "TOUCHPAD" (çıplak büyük harf kodu) ve yüz düğmeleri için
+/// "✕" "○" "□" "△" glif karakterleri. Köşeli parantez kullanılmaz: çevirmen "[L1]" içini çevirip bozabiliyor,
+/// oysa L1/R1 gibi harf-rakam kodları ve geometrik simgeler çeviride olduğu gibi kalır.
+/// Hangi düğme olduğu okunamayan simge ("oa", "@") dürüstçe "[button]" olur (çeviride "[düğme]").
+public enum GlyphNormalizer {
+    public static let faceGlyphs: Set<Character> = ["✕", "○", "□", "△"]
+
+    private static func rx(_ p: String, _ o: NSRegularExpression.Options = []) -> NSRegularExpression { try! NSRegularExpression(pattern: p, options: o) }
+    private static func sub(_ r: NSRegularExpression, _ s: String, _ t: String) -> String {
+        r.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: t)
+    }
+
+    // Yanlış okunan L1/R1: "LI" "Ll" "L|" "RI" "Rl"
+    private static let shoulderL = rx("(?<![A-Za-z0-9])L[1Il|](?![A-Za-z0-9])")
+    private static let shoulderR = rx("(?<![A-Za-z0-9])R[1Il|](?![A-Za-z0-9])")
+    private static let bracketCode = rx("[\\(\\[\\{]\\s*(L[123]|R[123]|OPTIONS|TOUCHPAD)\\s*[\\)\\]\\}]", .caseInsensitive)
+    private static let bracketLetter = rx("[\\(\\[\\{]\\s*([XxOo0])\\s*[\\)\\]\\}]")
+    private static let wordCodes = rx("(?<![A-Za-z0-9])(options|touchpad)(?=\\s+button)", .caseInsensitive)
+    private static let plusSpacing = rx("((?:L|R)[123]|✕|○|□|△|\\[button\\])\\s*\\+\\s*(?=(?:L|R)[123]\\b|✕|○|□|△|\\[button\\])")
+
+    private static let directMap: [Character: String] = [
+        "ⓧ": "✕", "Ⓧ": "✕", "⊗": "✕", "✖": "✕", "✗": "✕", "✘": "✕", "❌": "✕", "⨯": "✕",
+        "⭕": "○", "◯": "○", "◎": "○", "ⓞ": "○", "Ⓞ": "○", "⚪": "○",
+        "◻": "□", "▢": "□", "☐": "□", "⬜": "□", "▫": "□",
+        "▵": "△", "∆": "△", "⛛": "△", "🔺": "△", "▲": "△",
+    ]
+    private static let blobs: Set<String> = ["oa", "0a", "oo", "@", "©", "®", "ⓐ"]
+    private static let leadWords: Set<String> = ["press", "hold", "tap"]
+    private static let codeWords: Set<String> = ["L1", "R1", "L2", "R2", "L3", "R3", "OPTIONS", "TOUCHPAD", "✕", "○", "□", "△", "[button]"]
+
+    /// Sözcük çevresindeki noktalama ayrılır: (önek, çekirdek, sonek)
+    private static func split(_ t: String) -> (String, String, String) {
+        let chars = Array(t)
+        var a = 0, b = chars.count
+        let edge: Set<Character> = [".", ",", "!", "?", ";", ":", "\"", "'", "”", "’", "“", "‘"]
+        while a < b, edge.contains(chars[a]) { a += 1 }
+        while b > a, edge.contains(chars[b - 1]) { b -= 1 }
+        return (String(chars[0..<a]), String(chars[a..<b]), String(chars[b...]))
+    }
+
+    private static func isGlyphLike(_ core: String) -> Bool {
+        codeWords.contains(core) || ["X", "x", "O", "o", "0"].contains(core) || blobs.contains(core.lowercased())
+    }
+
+    public static func normalize(_ input: String) -> String {
+        var s = String(input.map { directMap[$0] ?? String($0) }.joined())
+        s = sub(shoulderL, s, "L1"); s = sub(shoulderR, s, "R1")
+        s = bracketCode.matches(in: s, range: NSRange(s.startIndex..., in: s)).reversed().reduce(s) { acc, m in
+            guard let r = Range(m.range, in: acc), let g = Range(m.range(at: 1), in: acc) else { return acc }
+            return acc.replacingCharacters(in: r, with: acc[g].uppercased())
+        }
+        // Parantezli kodların büyük harfe getirilmesi
+        s = s.split(separator: " ", omittingEmptySubsequences: false).map { tok -> String in
+            let (l, c, t) = split(String(tok))
+            return ["l1", "r1", "l2", "r2", "l3", "r3"].contains(c.lowercased()) ? l + c.uppercased() + t : String(tok)
+        }.joined(separator: " ")
+        s = bracketLetter.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: "§$1§")
+        s = s.replacingOccurrences(of: "§X§", with: "✕").replacingOccurrences(of: "§x§", with: "✕")
+            .replacingOccurrences(of: "§O§", with: "○").replacingOccurrences(of: "§o§", with: "○").replacingOccurrences(of: "§0§", with: "○")
+        s = wordCodes.matches(in: s, range: NSRange(s.startIndex..., in: s)).reversed().reduce(s) { acc, m in
+            guard let r = Range(m.range, in: acc) else { return acc }
+            return acc.replacingCharacters(in: r, with: acc[r].uppercased())
+        }
+        s = sub(plusSpacing, s, "$1 + ")
+
+        // Belirsiz tek belirteçler (X, O, "oa", "@"): yalnızca "+" / Press-Hold-Tap yanında ya da "and/or" ile glif arasında.
+        var toks = s.split(whereSeparator: \.isWhitespace).map(String.init)
+        let parts = toks.map(split)
+        func core(_ i: Int) -> String? { (0..<toks.count).contains(i) ? parts[i].1 : nil }
+        func raw(_ i: Int) -> String? { (0..<toks.count).contains(i) ? toks[i] : nil }
+        var out = toks
+        for i in 0..<toks.count {
+            let c = parts[i].1
+            let lc = c.lowercased()
+            let isLetterGlyph = ["x", "o", "0"].contains(lc)
+            guard isLetterGlyph || blobs.contains(lc) else { continue }
+            if isLetterGlyph && c != "X" && c != "x" && c != "O" && c != "o" && c != "0" { continue }
+            let prev = core(i - 1)?.lowercased(), next = core(i + 1)?.lowercased()
+            var ctx = false
+            if raw(i - 1) == "+" || raw(i + 1) == "+" { ctx = true }
+            if let p = prev, leadWords.contains(p) { ctx = true }
+            if let p = prev, p == "and" || p == "or", let pp = core(i - 2), isGlyphLike(pp) { ctx = true }
+            if let n = next, n == "and" || n == "or", let nn = core(i + 2), isGlyphLike(nn) { ctx = true }
+            guard ctx else { continue }
+            let g: String
+            switch lc { case "x": g = "✕"; case "o", "0": g = "○"; default: g = "[button]" }
+            out[i] = parts[i].0 + g + parts[i].2
+        }
+        toks = out
+        return sub(plusSpacing, toks.joined(separator: " "), "$1 + ")
+    }
+
+    /// Metindeki düğme belirteçleri sırayla (çeviri sonrası eksik/fazla denetimi için).
+    public static func tokens(in s: String) -> [String] {
+        var out: [String] = []
+        for t in s.split(whereSeparator: \.isWhitespace) {
+            let c = split(String(t)).1
+            if codeWords.contains(c) { out.append(c) }
+        }
+        return out
+    }
+}
+
 public enum InfoBox {
     public struct Region: Equatable {
         public var left: Double, top: Double, right: Double, bottom: Double
@@ -28,7 +132,8 @@ public enum InfoBox {
         if tokens.count > 1, let last = tokens.last {
             let onlySymbols = last.unicodeScalars.allSatisfy { !CharacterSet.alphanumerics.contains($0) }
             let isPunct = last.unicodeScalars.allSatisfy { keep.contains($0) }
-            if onlySymbols && !isPunct { tokens.removeLast() }
+            let isOurGlyph = last.count == 1 && GlyphNormalizer.faceGlyphs.contains(last.first!)
+            if onlySymbols && !isPunct && !isOurGlyph { tokens.removeLast() }
         }
         return tokens.joined(separator: " ")
     }
@@ -59,7 +164,7 @@ public enum InfoBox {
         let w = region.right - region.left, h = region.bottom - region.top
         var items: [L] = []
         for line in lines {
-            let text = stripTrailingGlyph(OcrNoise.clean(line.text))
+            let text = stripTrailingGlyph(OcrNoise.clean(GlyphNormalizer.normalize(line.text)))
             guard !text.isEmpty else { continue }
             let b = line.box
             items.append(L(text: text,
@@ -96,35 +201,40 @@ public enum InfoBox {
     }
 }
 
-/// Bilgi kutusu kararlılığı: metin 2 geçiş boyunca benzer kalınca çevrilir; kutu 3 boş geçiş kaybolunca temizlenir.
+/// Bilgi kutusu kararlılığı: metin 2 geçiş boyunca benzer kalınca çevrilir. Kutu ancak kesintisiz `clearAfter` sn
+/// kaybolunca temizlenir (kısa OCR titremesi temizleme+yeniden gönderim yapmaz). Ekranda kalan aynı metin yeniden
+/// gönderilmez; temizlenmiş kutu geri gelirse TV boş olduğundan yeniden gönderilir.
+/// Zaman dışarıdan verilir (saniye, monoton) ki test edilebilsin.
 public struct InfoBoxTracker {
     public enum Action: Equatable { case none, translate(InfoBlock), clear }
+    public static let clearAfter: TimeInterval = 2.0
     private var candidate: String?
     private var stableCount = 0
-    private var shown: String?
-    private var empties = 0
+    private var shown: String?          // son gösterilen metin (norm)
+    private var visible = false         // TV'de şu an görünüyor mu
+    private var absentSince: TimeInterval?
     public init() {}
 
-    public mutating func reset() { candidate = nil; stableCount = 0; shown = nil; empties = 0 }
+    public mutating func reset() { candidate = nil; stableCount = 0; shown = nil; visible = false; absentSince = nil }
 
-    public mutating func feed(_ block: InfoBlock?) -> Action {
+    public mutating func feed(_ block: InfoBlock?, at now: TimeInterval) -> Action {
         guard let block else {
             candidate = nil; stableCount = 0
-            empties += 1
-            if empties >= 3, shown != nil { shown = nil; empties = 0; return .clear }
+            if absentSince == nil { absentSince = now }
+            if visible, let since = absentSince, now - since >= Self.clearAfter { visible = false; return .clear }
             return .none
         }
-        empties = 0
+        absentSince = nil
         let norm = TextMatch.normalize(block.text)
         if let c = candidate, TextMatch.isSimilar(c, norm, threshold: 0.9) { stableCount += 1 } else { candidate = norm; stableCount = 1 }
         guard stableCount >= 2 else { return .none }
-        if let s = shown, TextMatch.isSimilar(s, norm, threshold: 0.9) { return .none }
-        shown = norm
+        if visible, let s = shown, TextMatch.isSimilar(s, norm, threshold: 0.9) { return .none }
+        shown = norm; visible = true
         return .translate(block)
     }
 
     /// Çeviri başarısız olduysa yeniden denensin.
-    public mutating func forgetShown() { shown = nil }
+    public mutating func forgetShown() { shown = nil; visible = false }
 }
 
 /// Aynı (ya da ≥0.9 benzer) Türkçe/İngilizce satırı kısa sürede yeniden göndermemek için.
