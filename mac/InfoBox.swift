@@ -201,6 +201,70 @@ public enum InfoBox {
     }
 }
 
+extension InfoBox {
+    private static let timeRx = try! NSRegularExpression(pattern: "^\\s*\\d{1,2}\\s*[:.]\\s*\\d{2}\\s*([AaPp]\\.?[Mm]\\.?)?\\s*$")
+    private static let percentRx = try! NSRegularExpression(pattern: "^\\s*\\d{1,3}\\s*%\\s*$")
+
+    /// Telefon ekranındaki arayüz kırıntısı mı: saat ("12:45", "9.05 PM"), pil yüzdesi, harf içermeyen satır,
+    /// tek sözcüklük kısa BÜYÜK HARF başlık ("MESSAGES"). Muhafazakâr: kısa gerçek mesajlar ("OK", "Hey") elenmez
+    /// (tek sözcük yalnızca tamamı büyük harf ve ≥4 harfliyse elenir; "OK"/"LOL" gibi kısalar kalır).
+    static func isPhoneChrome(_ t: String) -> Bool {
+        let r = NSRange(t.startIndex..., in: t)
+        if timeRx.firstMatch(in: t, range: r) != nil || percentRx.firstMatch(in: t, range: r) != nil { return true }
+        guard t.contains(where: \.isLetter) else { return true }
+        let words = t.split(whereSeparator: \.isWhitespace)
+        if words.count == 1 {
+            let letters = t.filter(\.isLetter)
+            if letters.count >= 4, letters.count <= 14, !t.contains(where: \.isLowercase) { return true }
+        }
+        return false
+    }
+
+    /// Telefon mesajları: tüm satırlar üstten alta okunur, arayüz kırıntıları atılır. Satırlar arası dikey boşluk
+    /// `splitGap` × satır yüksekliğinden büyükse ayrı balon sayılır ve ayrı blok döner. Mesajlar kısa olabilir:
+    /// blok için en az 2 sözcük ve küçük harf içeren bir metin gerekir.
+    public static func blocks(from lines: [OCRLine], region: Region, splitGap: Double = 1.2) -> [InfoBlock] {
+        struct L { var text: String; var left, top, right, bottom: Double }
+        let w = region.right - region.left, h = region.bottom - region.top
+        var items: [L] = []
+        for line in lines {
+            let text = stripTrailingGlyph(OcrNoise.clean(GlyphNormalizer.normalize(line.text)))
+            guard !text.isEmpty, !isPhoneChrome(text) else { continue }
+            let b = line.box
+            items.append(L(text: text,
+                           left: region.left + Double(b.minX) * w, top: region.top + (1 - Double(b.maxY)) * h,
+                           right: region.left + Double(b.maxX) * w, bottom: region.top + (1 - Double(b.minY)) * h))
+        }
+        items.sort { $0.top < $1.top }
+        var groups: [[L]] = []
+        for it in items {
+            if let prev = groups.last?.last {
+                let lh = max(prev.bottom - prev.top, 0.001)
+                if it.top - prev.bottom <= splitGap * lh { groups[groups.count - 1].append(it); continue }
+            }
+            groups.append([it])
+        }
+        var out: [InfoBlock] = []
+        for g in groups {
+            let text = join(g.map(\.text))
+            guard wordCount(text) >= 2, text.contains(where: \.isLowercase) else { continue }
+            let heights = g.map { $0.bottom - $0.top }.sorted()
+            let minX = g.map(\.left).min()!, minY = g.map(\.top).min()!
+            let rect = CGRect(x: minX, y: minY, width: g.map(\.right).max()! - minX, height: g.map(\.bottom).max()! - minY)
+            out.append(InfoBlock(text: text, box: rect, lineHeight: heights[heights.count / 2]))
+        }
+        return out
+    }
+
+    /// Birden çok balonu izleyiciye tek blok olarak vermek için (metinler satır sonuyla birleşir, kutu birleşimi).
+    public static func combined(_ blocks: [InfoBlock]) -> InfoBlock? {
+        guard let first = blocks.first else { return nil }
+        let rect = blocks.dropFirst().reduce(first.box) { $0.union($1.box) }
+        let hs = blocks.map(\.lineHeight).sorted()
+        return InfoBlock(text: blocks.map(\.text).joined(separator: "\n"), box: rect, lineHeight: hs[hs.count / 2])
+    }
+}
+
 /// Bilgi kutusu kararlılığı: metin 2 geçiş boyunca benzer kalınca çevrilir. Kutu ancak kesintisiz `clearAfter` sn
 /// kaybolunca temizlenir (kısa OCR titremesi temizleme+yeniden gönderim yapmaz). Ekranda kalan aynı metin yeniden
 /// gönderilmez; temizlenmiş kutu geri gelirse TV boş olduğundan yeniden gönderilir.

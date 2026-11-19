@@ -48,3 +48,34 @@ data: {"mode":"preview"|"save"|"cancel", "settings":{...}, "rev": <artan tamsay�
 - **Swift → JS:**
   - `window.__editorLoad(settingsOrNull, tvConnected)`: TV'nin son bildirdiği ayarı yükler.
   - `window.__editorStatus(tvConnected, lastReportIso)`: bağlantı durumunu günceller.
+
+## Ekran bölgeleri (screen)
+
+Mac, altyazıdan bağımsız olarak ekranın belirli bölgelerini (bilgi/öğretici kutusu, telefon mesajları) ayrı ayrı çevirir ve TV'ye SSE ile gönderir. Her bölge kendi kimliğiyle (`region`) yönetilir; TV yalnızca ilgili bölgenin öğelerini değiştirir ya da temizler.
+
+| `region` | Ekrandaki yer | `placement` |
+| --- | --- | --- |
+| `info` | sol üst bilgi/öğretici kutusu | `below` (çeviri kutunun altına) |
+| `phone` | sağ taraftaki telefon mesajları | `left` (çeviri balonun soluna) |
+
+**Mac → TV: SSE olayı `screen`**
+
+```json
+{"region":"phone","duration":15000,"items":[
+  {"text":"Türkçe çeviri","source":"English text",
+   "box":{"left":0.70,"top":0.30,"right":0.90,"bottom":0.36},
+   "line":0.025,"placement":"left"}
+]}
+```
+
+- `region`: `"info"` ya da `"phone"`. Alan yoksa (eski Mac sürümleri) `"info"` kabul edilir.
+- `items`: bölgenin o anki tüm öğeleri; TV, o bölgenin önceki öğelerini bu listeyle **değiştirir**, diğer bölgelere dokunmaz. Telefonda ayrı balonlar (dikey boşluk > ~1,2 satır yüksekliği) ayrı öğe olur; her öğenin kendi `box` değeri vardır.
+- `box`: tüm karede normalize (0..1), başlangıç sol-üst. `line`: normalize satır yüksekliği. `duration`: ms cinsinden en fazla görünme süresi.
+
+**Mac → TV: SSE olayı `screen-clear`**
+
+```json
+{"region":"phone"}
+```
+
+Yalnızca belirtilen bölgenin öğelerini siler. Gövde boş ya da `region` yoksa `"info"` kabul edilir (geriye dönük uyum). Mac, bölge metni 2 sn kesintisiz kaybolunca ve çeviri durdurulunca ilgili bölge için gönderir.

@@ -111,6 +111,33 @@ expect(iconBlock2?.text == "Press ✕ to skip this tutorial text now", "sondaki/
 let trailing = InfoBox.bestBlock(from: [vline("You can open the map any time by pressing ⓧ", frameTop: 0.3)], region: region)
 expect(trailing?.text == "You can open the map any time by pressing ✕", "satır sonu ✕ atılmamalı: \(trailing?.text ?? "nil")")
 
+// Telefon mesajları
+let pregion = InfoBox.Region(left: 0.66, top: 0.20, right: 0.99, bottom: 0.90)
+func pline(_ text: String, top: Double, h: Double = 0.025, left: Double = 0.70, w: Double = 0.2) -> OCRLine {
+    let x = (left - pregion.left) / (pregion.right - pregion.left)
+    let t = (top - pregion.top) / (pregion.bottom - pregion.top)
+    let hh = h / (pregion.bottom - pregion.top)
+    return OCRLine(text: text, box: CGRect(x: x, y: 1 - t - hh, width: w / (pregion.right - pregion.left), height: hh))
+}
+let one = InfoBox.blocks(from: [pline("Hey, where are you? I have been", top: 0.40), pline("calling you all morning.", top: 0.43)], region: pregion)
+expect(one.count == 1 && one[0].text == "Hey, where are you? I have been calling you all morning.", "tek balon: \(one.map(\.text))")
+expect(one.first.map { abs($0.box.minX - 0.70) < 0.002 && abs($0.box.minY - 0.40) < 0.002 } == true, "balon kutusu")
+let two = InfoBox.blocks(from: [pline("Meet me at the marina.", top: 0.30), pline("Ok, on my way now.", top: 0.50), pline("Bring the cash.", top: 0.53)], region: pregion)
+expect(two.map(\.text) == ["Meet me at the marina.", "Ok, on my way now. Bring the cash."], "iki balon: \(two.map(\.text))")
+let sorted = InfoBox.blocks(from: [pline("Second bubble here.", top: 0.60), pline("First bubble here.", top: 0.30)], region: pregion)
+expect(sorted.map(\.text) == ["First bubble here.", "Second bubble here."], "sıralama")
+let chrome = InfoBox.blocks(from: [pline("12:45", top: 0.22), pline("MESSAGES", top: 0.25), pline("87%", top: 0.23), pline("Lucia", top: 0.28), pline("Call me when you land.", top: 0.45), pline("9.05 PM", top: 0.60)], region: pregion)
+expect(chrome.map(\.text) == ["Call me when you land."], "arayüz kırıntıları: \(chrome.map(\.text))")
+expect(InfoBox.blocks(from: [pline("OK", top: 0.4)], region: pregion).isEmpty, "tek sözcük blok olmaz")
+let short = InfoBox.blocks(from: [pline("On my way", top: 0.4)], region: pregion)
+expect(short.map(\.text) == ["On my way"], "kısa mesaj kalmalı")
+let glyph = InfoBox.blocks(from: [pline("Press LI to reply now", top: 0.4)], region: pregion)
+expect(glyph.first?.text == "Press L1 to reply now", "glif normalleşmeli: \(glyph.map(\.text))")
+expect(InfoBox.isPhoneChrome("12:45") && InfoBox.isPhoneChrome("9.05 pm") && InfoBox.isPhoneChrome("LOCKED") && !InfoBox.isPhoneChrome("LOL") && !InfoBox.isPhoneChrome("Hello"), "chrome sınıflandırma")
+let comb = InfoBox.combined(two)
+expect(comb?.text == "Meet me at the marina.\nOk, on my way now. Bring the cash." && comb.map { $0.box.minY < 0.31 && $0.box.maxY > 0.55 } == true, "birleşik blok")
+expect(InfoBox.combined([]) == nil, "boş birleşik")
+
 // ResendGuard
 var g = ResendGuard()
 expect(g.shouldSend(["Bu ses nedir?", "What is that sound?"], at: 0), "ilk gönderim")
