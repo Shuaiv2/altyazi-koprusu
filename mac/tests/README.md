@@ -15,3 +15,11 @@ Bilgi kutusu, tekrar gönderim süzgeci ve GameEnglish testleri:
     swiftc -parse-as-library -o /tmp/infobox-tests mac/InfoBox.swift mac/SubtitleFilter.swift \
       $C/OcrNoise.swift $C/TextMatch.swift $C/GameEnglish.swift mac/tests/InfoBoxTests.swift \
       && /tmp/infobox-tests
+
+Ekran metni (görev hedefi / bilgi kutusu / bildirim / harita-menü açıklaması) sınıflandırması ve izleyici
+(fikstürler araclar/izleme/ocr.tsv'deki gerçek GTA 6 karelerinden):
+
+    C=core/Sources/GameTranslatorCore
+    swiftc -parse-as-library -o /tmp/screentext-tests mac/ScreenText.swift mac/InfoBox.swift mac/SubtitleFilter.swift \
+      $C/OcrNoise.swift $C/TextMatch.swift mac/tests/ScreenTextTests.swift \
+      && /tmp/screentext-tests

@@ -218,12 +218,12 @@ public final class NativeSubtitleServer: @unchecked Sendable {
     }
 
     /// Bilgi kutusu çevirisi: TV `screen` olayı. items: [{text, source, box{left,top,right,bottom}, line, placement}]
-    /// `region`: "info" | "phone" — TV yalnızca o bölgenin öğelerini değiştirir/temizler.
+    /// `region`: "objective" | "info" | "notify" | "description" — TV yalnızca o türün öğelerini değiştirir/temizler.
     public func sendScreen(region: String = "info", items: [[String: Any]], durationMs: Int = 15000) {
         broadcast(event: "screen", json: ["region": region, "duration": durationMs, "items": items])
     }
 
-    /// Yalnızca verilen bölgeyi temizler (`{"region":"phone"}`).
+    /// Yalnızca verilen türü temizler (`{"region":"notify"}`).
     public func clearScreen(region: String = "info") {
         broadcast(event: "screen-clear", json: ["region": region])
     }
@@ -1755,49 +1755,31 @@ final class AppState {
         if systemAssertion != 0 { IOPMAssertionRelease(systemAssertion); systemAssertion = 0 }
     }
 
-    // Bilgi kutusu (sol üst öğretici/yardım kutuları): ikinci, bağımsız OCR geçişi.
+    // Ekran metni (1.6.0): tam kare üzerinde ~1 sn'de bir ayrı OCR geçişi; görev hedefi, bilgi kutusu, telefon/bildirim ve
+    // harita/menü açıklamaları sınıflandırılır (bkz. ScreenText.swift). Eski sabit kırpma ayarları kaldırıldı
+    // (gt_info_left.. / gt_phone_* anahtarları UserDefaults'ta zararsız kalır).
+    var objectiveEnabled: Bool = UserDefaults.standard.object(forKey: "gt_objective_enabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(objectiveEnabled, forKey: "gt_objective_enabled") }
+    }
+    // Başlangıç değeri eski "bilgi kutusu" anahtarından gelir.
     var infoEnabled: Bool = UserDefaults.standard.object(forKey: "gt_info_enabled") as? Bool ?? true {
         didSet { UserDefaults.standard.set(infoEnabled, forKey: "gt_info_enabled") }
     }
-    var infoLeft: Double = UserDefaults.standard.object(forKey: "gt_info_left") as? Double ?? 0.01 {
-        didSet { UserDefaults.standard.set(infoLeft, forKey: "gt_info_left") }
+    var notifyEnabled: Bool = (UserDefaults.standard.object(forKey: "gt_notify_enabled") as? Bool) ?? (UserDefaults.standard.object(forKey: "gt_phone_enabled") as? Bool) ?? true {
+        didSet { UserDefaults.standard.set(notifyEnabled, forKey: "gt_notify_enabled") }
     }
-    var infoTop: Double = UserDefaults.standard.object(forKey: "gt_info_top") as? Double ?? 0.24 {
-        didSet { UserDefaults.standard.set(infoTop, forKey: "gt_info_top") }
-    }
-    var infoRight: Double = UserDefaults.standard.object(forKey: "gt_info_right") as? Double ?? 0.27 {
-        didSet { UserDefaults.standard.set(infoRight, forKey: "gt_info_right") }
-    }
-    var infoBottom: Double = UserDefaults.standard.object(forKey: "gt_info_bottom") as? Double ?? 0.44 {
-        didSet { UserDefaults.standard.set(infoBottom, forKey: "gt_info_bottom") }
+    var descriptionEnabled: Bool = UserDefaults.standard.object(forKey: "gt_description_enabled") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(descriptionEnabled, forKey: "gt_description_enabled") }
     }
     var liveInfo: String = ""
-    var phoneEnabled: Bool = UserDefaults.standard.object(forKey: "gt_phone_enabled") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(phoneEnabled, forKey: "gt_phone_enabled") }
-    }
-    var phoneLeft: Double = UserDefaults.standard.object(forKey: "gt_phone_left") as? Double ?? 0.66 {
-        didSet { UserDefaults.standard.set(phoneLeft, forKey: "gt_phone_left") }
-    }
-    var phoneTop: Double = UserDefaults.standard.object(forKey: "gt_phone_top") as? Double ?? 0.20 {
-        didSet { UserDefaults.standard.set(phoneTop, forKey: "gt_phone_top") }
-    }
-    var phoneRight: Double = UserDefaults.standard.object(forKey: "gt_phone_right") as? Double ?? 0.99 {
-        didSet { UserDefaults.standard.set(phoneRight, forKey: "gt_phone_right") }
-    }
-    var phoneBottom: Double = UserDefaults.standard.object(forKey: "gt_phone_bottom") as? Double ?? 0.90 {
-        didSet { UserDefaults.standard.set(phoneBottom, forKey: "gt_phone_bottom") }
-    }
-    var livePhone: String = ""
-    /// Ekran bölgesi çalışma durumu (kimlik: "info" | "phone"): kendi izleyicisi, sıra numarası ve meşgul bayrağı.
-    final class ScreenRegionRuntime {
-        let id: String
-        var tracker = InfoBoxTracker()
-        var isProcessing = false
-        var seq = 0
-        init(id: String) { self.id = id }
-    }
-    @ObservationIgnored private let infoRegion = ScreenRegionRuntime(id: "info")
-    @ObservationIgnored private let phoneRegion = ScreenRegionRuntime(id: "phone")
+    @ObservationIgnored private var screenTracker = ScreenTracker()
+    @ObservationIgnored private var screenBusy = false
+    @ObservationIgnored private var screenSeq = 0
+    /// yuva -> TV'ye gönderilmiş öğe (aynı türün birden çok yuvası birlikte gönderilir)
+    @ObservationIgnored private var screenItems: [String: [String: Any]] = [:]
+    @ObservationIgnored private var screenKinds: [String: ScreenKind] = [:]
+    @ObservationIgnored private var screenGen: [String: Int] = [:]
+    @ObservationIgnored private var lastScreenMode: ScreenMode = .game
     @ObservationIgnored private var infoTick = 0
     @ObservationIgnored private var resendGuard = ResendGuard()
     @ObservationIgnored private var lastOffscreenLogAt: Date = .distantPast
@@ -2497,9 +2479,9 @@ final class AppState {
         self.sentenceJoiner.reset()
         self.fillerTask?.cancel()
         self.resendGuard.reset()
-        for r in [infoRegion, phoneRegion] { r.tracker.reset(); r.seq += 1; server.clearScreen(region: r.id) }
+        screenTracker.reset(); screenSeq += 1; screenItems = [:]; screenKinds = [:]; screenGen = [:]; lastScreenMode = .game
+        for k in ["objective", "info", "notify", "description"] { server.clearScreen(region: k) }
         self.liveInfo = ""
-        self.livePhone = ""
         self.liveEnglish = "PS5 Canlı Akışı Bekleniyor"
         self.liveTurkish = "Çeviri Durduruldu"
 
@@ -2637,9 +2619,8 @@ final class AppState {
         }
 
         infoTick += 1
-        // Bölgeler aynı karede, kaydırmalı: bir turda en fazla bir bölge OCR yapar (bilgi: 3k, telefon: 3k+1).
-        if infoEnabled, infoTick % 3 == 0 { runRegionPass(infoRegion, frame: pureVideoCg) }
-        else if phoneEnabled, infoTick % 3 == 1 { runRegionPass(phoneRegion, frame: pureVideoCg) }
+        // Ekran metni: her 3. tikte bir tam kare OCR geçişi (altyazı hattından bağımsız).
+        if (objectiveEnabled || infoEnabled || notifyEnabled || descriptionEnabled), infoTick % 3 == 0 { runScreenPass(frame: pureVideoCg) }
 
         if isProcessingOCR, Date().timeIntervalSince(ocrStartedAt) > 3.0 {
             // Takılan geçiş: sıfırla, geç gelen sonuçları yok say.
@@ -2874,93 +2855,105 @@ final class AppState {
         }
     }
 
-    /// Ekran bölgesi geçişi (bilgi kutusu / telefon): aynı karede ek OCR (ek yakalama yok), altyazı hattından bağımsız.
-    private func runRegionPass(_ rt: ScreenRegionRuntime, frame: CGImage) {
-        guard !rt.isProcessing else { return }
-        let isPhone = rt.id == "phone"
-        let tag = isPhone ? "telefon" : "bilgi"
-        let l = isPhone ? phoneLeft : infoLeft, t = isPhone ? phoneTop : infoTop
-        let r = isPhone ? phoneRight : infoRight, bt = isPhone ? phoneBottom : infoBottom
-        let region = InfoBox.Region(left: min(l, r - 0.05), top: min(t, bt - 0.05),
-                                    right: max(r, l + 0.05), bottom: max(bt, t + 0.05))
-        let vW = Double(frame.width), vH = Double(frame.height)
-        let rect = CGRect(x: max(0, vW * region.left), y: max(0, vH * region.top),
-                          width: min(vW, vW * (region.right - region.left)), height: min(vH, vH * (region.bottom - region.top)))
-        guard let crop = frame.cropping(to: rect.intersection(CGRect(x: 0, y: 0, width: vW, height: vH))) else { return }
-        rt.isProcessing = true
-        let seq = rt.seq
-        let placement = isPhone ? "left" : "below"
+    private func screenKindEnabled(_ k: ScreenKind) -> Bool {
+        switch k {
+        case .objective: return objectiveEnabled
+        case .info: return infoEnabled
+        case .notify: return notifyEnabled
+        case .description: return descriptionEnabled
+        }
+    }
+
+    private static func screenPlacement(_ k: ScreenKind) -> String {
+        switch k { case .info: return "below"; case .notify: return "left"; case .objective, .description: return "over" }
+    }
+
+    /// Ekran metni geçişi: tam karede Vision .accurate, ScreenText ile sınıflandırma, ScreenTracker ile kararlılık.
+    private func runScreenPass(frame: CGImage) {
+        guard !screenBusy else { return }
+        screenBusy = true
+        let seq = screenSeq
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let started = Date()
             let request = VNRecognizeTextRequest()
             request.recognitionLevel = .accurate
             request.recognitionLanguages = ["en-US"]
             request.usesLanguageCorrection = true
-            var lines: [OCRLine] = []
-            if (try? VNImageRequestHandler(cgImage: crop, options: [:]).perform([request])) != nil {
+            var lines: [ScreenLine] = []
+            if (try? VNImageRequestHandler(cgImage: frame, options: [:]).perform([request])) != nil {
                 for obs in request.results ?? [] {
-                    guard let top = obs.topCandidates(1).first, top.confidence >= 0.35 else { continue }
-                    lines.append(OCRLine(text: top.string.trimmingCharacters(in: .whitespacesAndNewlines), box: obs.boundingBox, confidence: top.confidence))
+                    guard let top = obs.topCandidates(1).first else { continue }
+                    let b = obs.boundingBox   // sol-alt başlangıç -> sol-üst
+                    lines.append(ScreenLine(text: top.string.trimmingCharacters(in: .whitespacesAndNewlines),
+                                            rect: CGRect(x: b.minX, y: 1 - b.maxY, width: b.width, height: b.height), confidence: top.confidence))
                 }
             }
-            let dbg = SubtitleDebug.enabled
-            if dbg { for l in lines { SubtitleDebug.log("\(tag): ham satır \"\(l.text)\" güven=\(String(format: "%.2f", l.confidence))") } }
-            // Çöp satırlar elenir; düğme ipucu satırları ("Hold [L1] + [R1] to ...") bölgede KALIR.
-            let verdict = SubtitleFilter.evaluate(lines, options: { var o = SubtitleFilter.Options(); o.useGeometry = false; o.dropShortCaps = false; o.dropButtonPrompts = false; return o }())
-            if dbg { for d in verdict.dropped { SubtitleDebug.log("\(tag): elendi [\(d.reason.rawValue)] \(d.line.text)") } }
-            lines = verdict.kept
-            let blocks: [InfoBlock]
-            if isPhone { blocks = InfoBox.blocks(from: lines, region: region) }
-            else { blocks = InfoBox.bestBlock(from: lines, region: region).map { [$0] } ?? [] }
-            let block = InfoBox.combined(blocks)
-            if dbg { SubtitleDebug.log("\(tag): blok metni: \(blocks.isEmpty ? "yok" : blocks.map { "\"\($0.text)\"" }.joined(separator: " | "))") }
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            let result = ScreenText.analyze(lines)
             DispatchQueue.main.async {
                 guard let self else { return }
-                rt.isProcessing = false
-                guard self.isRunning, isPhone ? self.phoneEnabled : self.infoEnabled, seq == rt.seq else { return }
-                let action = rt.tracker.feed(block, at: ProcessInfo.processInfo.systemUptime)
+                self.screenBusy = false
+                guard self.isRunning, seq == self.screenSeq else { return }
+                let dbg = SubtitleDebug.enabled
                 if dbg {
-                    switch action {
-                    case .none: SubtitleDebug.log("\(tag): izleyici -> none")
-                    case .clear: SubtitleDebug.log("\(tag): izleyici -> clear")
-                    case .translate: SubtitleDebug.log("\(tag): izleyici -> translate")
-                    }
+                    SubtitleDebug.log("ekran: OCR \(ms) ms, \(lines.count) satır, mod=\(result.mode.rawValue)")
+                    for b in result.blocks { SubtitleDebug.log("ekran: blok [\(b.kind.rawValue)] \(b.speaker.map { "(\($0)) " } ?? "")\(b.title.map { "\"\($0)\" " } ?? "")\"\(b.text)\"") }
                 }
-                switch action {
-                case .none: break
-                case .clear:
-                    rt.seq += 1
-                    if isPhone { self.livePhone = "" } else { self.liveInfo = "" }
-                    self.server.clearScreen(region: rt.id)
-                case .translate:
-                    rt.seq += 1
-                    let mySeq = rt.seq
-                    Task {
-                        var items: [[String: Any]] = []
-                        var turkishAll: [String] = []
-                        for b in blocks {
-                            let result = await self.translateText(GameEnglish.plain(b.text))
-                            guard let turkish = result.text else { continue }
-                            if dbg, GlyphNormalizer.tokens(in: b.text) != GlyphNormalizer.tokens(in: turkish) {
-                                SubtitleDebug.log("\(tag): düğme belirteci uyuşmazlığı kaynak=\(GlyphNormalizer.tokens(in: b.text)) çeviri=\(GlyphNormalizer.tokens(in: turkish)) (yine de gönderildi)")
-                            }
-                            turkishAll.append(turkish)
-                            let box: [String: Double] = [
-                                "left": Double(b.box.minX), "top": Double(b.box.minY),
-                                "right": Double(b.box.maxX), "bottom": Double(b.box.maxY),
-                            ]
-                            items.append(["text": turkish, "source": b.text, "box": box, "line": b.lineHeight, "placement": placement])
-                        }
-                        await MainActor.run {
-                            guard mySeq == rt.seq, self.isRunning else { return }
-                            guard items.count == blocks.count, !items.isEmpty else { rt.tracker.forgetShown(); return }
-                            let joined = turkishAll.joined(separator: " / ")
-                            if isPhone { self.livePhone = joined } else { self.liveInfo = joined }
-                            self.server.sendScreen(region: rt.id, items: items)
-                        }
+                if result.mode != self.lastScreenMode {
+                    if dbg { SubtitleDebug.log("ekran: mod \(self.lastScreenMode.rawValue) -> \(result.mode.rawValue)") }
+                    self.lastScreenMode = result.mode
+                }
+                let blocks = result.blocks.filter { self.screenKindEnabled($0.kind) }
+                for action in self.screenTracker.feed(blocks, mode: result.mode, at: ProcessInfo.processInfo.systemUptime) {
+                    switch action {
+                    case .clear(let slot, let kind):
+                        if dbg { SubtitleDebug.log("ekran: izleyici temizle [\(slot)]") }
+                        self.screenGen[slot, default: 0] += 1
+                        self.screenItems[slot] = nil; self.screenKinds[slot] = nil
+                        self.sendScreenKind(kind)
+                    case .translate(let block):
+                        if dbg { SubtitleDebug.log("ekran: izleyici çevir [\(block.slot)] \"\(block.text)\"") }
+                        self.screenGen[block.slot, default: 0] += 1
+                        let gen = self.screenGen[block.slot]!
+                        Task { await self.translateScreenBlock(block, gen: gen, dbg: dbg) }
                     }
                 }
             }
         }
+    }
+
+    private func translateScreenBlock(_ b: ScreenBlock, gen: Int, dbg: Bool) async {
+        let body = await translateText(GameEnglish.plain(b.text))
+        guard var turkish = body.text else { await MainActor.run { self.screenTracker.forgetShown(slot: b.slot) }; return }
+        var source = b.text
+        if let title = b.title {
+            let t = await translateText(GameEnglish.plain(title))
+            let trTitle = (t.text ?? title).uppercased(with: Locale(identifier: "tr"))
+            turkish = "\(trTitle): \(turkish)"
+            source = "\(title): \(b.text)"
+        }
+        let finalTurkish = turkish, finalSource = source
+        await MainActor.run {
+            guard self.isRunning, self.screenGen[b.slot] == gen else { return }
+            if dbg, GlyphNormalizer.tokens(in: b.text) != GlyphNormalizer.tokens(in: finalTurkish) {
+                SubtitleDebug.log("ekran: düğme belirteci uyuşmazlığı kaynak=\(GlyphNormalizer.tokens(in: b.text)) çeviri=\(GlyphNormalizer.tokens(in: finalTurkish)) (yine de gönderildi)")
+            }
+            let box: [String: Double] = ["left": Double(b.box.minX), "top": Double(b.box.minY), "right": Double(b.box.maxX), "bottom": Double(b.box.maxY)]
+            var item: [String: Any] = ["text": finalTurkish, "source": finalSource, "box": box, "line": b.lineHeight, "placement": Self.screenPlacement(b.kind)]
+            if let sp = b.speaker { item["speaker"] = sp }
+            self.screenItems[b.slot] = item
+            self.screenKinds[b.slot] = b.kind
+            self.liveInfo = finalTurkish
+            self.sendScreenKind(b.kind)
+        }
+    }
+
+    /// Bir türün şu an görünen tüm yuvalarını TV'ye gönderir; hiç yoksa o türü temizler.
+    private func sendScreenKind(_ kind: ScreenKind) {
+        let slots = screenKinds.filter { $0.value == kind }.map(\.key).sorted()
+        let items = slots.compactMap { screenItems[$0] }
+        if items.isEmpty { server.clearScreen(region: kind.rawValue); if screenItems.isEmpty { liveInfo = "" } }
+        else { server.sendScreen(region: kind.rawValue, items: items) }
     }
 
     /// Altyazı yok (ya da hepsi elendi): kararlılık izleyicisine boş kare bildir; ekrandan kalktıysa TV'yi temizle.
@@ -4334,25 +4327,12 @@ struct MainWindowView: View {
             .padding(10)
             .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
 
-            // Bilgi kutusu (sol üst öğretici kutuları)
+            // Ekran metinleri (tam kare OCR)
             VStack(alignment: .leading, spacing: 6) {
-                Toggle("Bilgi kutularını çevir", isOn: $state.infoEnabled).font(.system(size: 10.5)).toggleStyle(.checkbox)
-                if state.infoEnabled {
-                    HStack(spacing: 10) {
-                        ForEach([("Sol", \AppState.infoLeft, 0.0...0.6), ("Üst", \AppState.infoTop, 0.0...0.9),
-                                 ("Sağ", \AppState.infoRight, 0.1...1.0), ("Alt", \AppState.infoBottom, 0.1...1.0)], id: \.0) { item in
-                            VStack(alignment: .leading, spacing: 2) {
-                                HStack {
-                                    Text("Bilgi \(item.0)").font(.system(size: 10)).foregroundStyle(Color.white.opacity(0.75))
-                                    Spacer()
-                                    Text("%\(Int(state[keyPath: item.1] * 100))").font(.system(size: 9.5, weight: .bold, design: .monospaced)).foregroundStyle(Color(hex: "#38BDF8"))
-                                }
-                                Slider(value: Binding(get: { state[keyPath: item.1] }, set: { state[keyPath: item.1] = $0 }), in: item.2, step: 0.01)
-                            }
-                        }
-                    }
-                }
-                Toggle("Telefon mesajlarını çevir", isOn: $state.phoneEnabled).font(.system(size: 10.5)).toggleStyle(.checkbox)
+                Toggle("Görev hedefi", isOn: $state.objectiveEnabled).font(.system(size: 10.5)).toggleStyle(.checkbox)
+                Toggle("Bilgi kutuları", isOn: $state.infoEnabled).font(.system(size: 10.5)).toggleStyle(.checkbox)
+                Toggle("Telefon/bildirimler", isOn: $state.notifyEnabled).font(.system(size: 10.5)).toggleStyle(.checkbox)
+                Toggle("Harita ve menü açıklamaları", isOn: $state.descriptionEnabled).font(.system(size: 10.5)).toggleStyle(.checkbox)
             }
             .padding(10)
             .background(Color.black.opacity(0.25), in: RoundedRectangle(cornerRadius: 8))
