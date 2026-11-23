@@ -17,7 +17,21 @@ public struct ScreenLine: Equatable {
 
 public enum ScreenMode: String, Equatable { case game, map, menu, phone }
 
-public enum ScreenKind: String, Equatable { case objective, info, notify, description, phone }
+public enum ScreenKind: String, Equatable { case objective, info, notify, description, phone, vehicle }
+
+/// Araç bilgi panelindeki tek hücre (etiket ya da sözcük değer). Sayı/para/puan değerleri hücre olmaz (dokunulmaz).
+public struct VehicleCell: Equatable {
+    public var box: CGRect
+    public var source: String
+    /// Sözlükten gelen BÜYÜK HARF Türkçe; nil ise normal çevirmenle çevrilip büyük harfe çevrilir.
+    public var translated: String?
+    public var isValue: Bool
+    /// Yalnızca etiket: Türkçenin sağa uzayabileceği en uzak kenar (değerin sol kenarından 0.02 önce), normalize.
+    public var maxRight: Double?
+    public init(box: CGRect, source: String, translated: String?, isValue: Bool, maxRight: Double? = nil) {
+        self.box = box; self.source = source; self.translated = translated; self.isValue = isValue; self.maxRight = maxRight
+    }
+}
 
 /// Sınıflandırılmış ekran metni bloğu.
 public struct ScreenBlock: Equatable {
@@ -36,6 +50,12 @@ public struct ScreenBlock: Equatable {
     public var slot: String
     /// Yalnızca açık telefon konuşması: sıralı mesajlar (text = hepsi "\n" ile birleşik). speaker = konuşma başlığındaki ad.
     public var messages: [PhoneMessage] = []
+    /// Yalnızca araç paneli (.vehicle): satırlar halinde hücreler.
+    public var rows: [[VehicleCell]] = []
+    /// Araç paneli için izleyici anahtarı: her hücrenin kanonik (sözlük çevirisi ya da sadeleşmiş kaynak) metni.
+    var vehicleSignature: String {
+        rows.flatMap { $0 }.map { $0.translated ?? TextMatch.normalize($0.source) }.joined(separator: "|")
+    }
 }
 
 /// Telefon konuşmasındaki tek balon. `fromMe`: sağa yaslı (oyuncunun kendi yanıtı).
@@ -155,15 +175,118 @@ public enum ScreenText {
     /// konum kuralı (isMine) kullanılır. Yalnızca açık konuşma bulunduğunda çağrılır.
     public static func analyze(_ lines: [ScreenLine], bubbleBlue: ((CGRect) -> Bool?)? = nil) -> (mode: ScreenMode, blocks: [ScreenBlock], phone: PhoneInfo?) {
         let base = detectMode(lines)
+        var lines = lines
+        var vehicle: ScreenBlock?
+        if base == .game, let v = detectVehicle(lines) {
+            // Araç paneli satırlarını (başlık, noktalar, R3, logo gürültüsü dahil) diğer sınıflayıcılardan al.
+            vehicle = v.block
+            lines = lines.enumerated().filter { !v.claimed.contains($0.offset) }.map(\.element)
+        }
         if base != .map, let (info, chain) = detectPhone(lines) {
             let blocks = info.isList ? [] : phoneBlocks(chain, box: info.box, bubbleBlue: bubbleBlue)
             return (.phone, blocks, info)
         }
         let items = prepare(lines)
         switch base {
-        case .game: return (.game, gameBlocks(items), nil)
+        case .game:
+            var blocks = gameBlocks(items)
+            if let v = vehicle { blocks.append(v); blocks.sort { $0.box.minY < $1.box.minY } }
+            return (.game, blocks, nil)
         default: return (base, descriptionBlocks(items), nil)
         }
+    }
+
+    // MARK: Araç bilgi paneli (GTA 6)
+
+    /// İngilizce -> BÜYÜK HARF Türkçe. Anahtarlar TextMatch.normalize biçimindedir.
+    static let vehicleGlossary: [String: String] = [
+        "access": "ERİŞİM", "locked": "KİLİTLİ", "unlocked": "AÇIK", "security": "GÜVENLİK", "alarmed": "ALARMLI",
+        "tracker": "TAKİP CİHAZI", "none": "YOK", "sell value": "SATIŞ DEĞERİ", "cost to register": "KAYIT ÜCRETİ",
+        "speed": "HIZ", "acceleration": "HIZLANMA", "asphalt handling": "ASFALT YOL TUTUŞU", "off road handling": "ARAZİ YOL TUTUŞU",
+        "strength": "DAYANIKLILIK", "rating": "PUAN", "key cloner": "ANAHTAR KOPYALAYICI", "standard": "STANDART",
+        "basic": "TEMEL", "advanced": "GELİŞMİŞ", "owned": "SAHİPLİ", "stolen": "ÇALINTI", "registered": "KAYITLI",
+        "unregistered": "KAYITSIZ",
+    ]
+
+    /// Sözlük çevirisi (OCR gürültüsüne karşı ≥0.85 bulanık eşleşme); yoksa nil.
+    public static func vehicleTranslation(_ text: String) -> String? {
+        let n = TextMatch.normalize(text)
+        guard !n.isEmpty else { return nil }
+        if let t = vehicleGlossary[n] { return t }
+        var best: (String, Int)?
+        for (k, v) in vehicleGlossary where TextMatch.isSimilar(n, k, threshold: 0.85) {
+            let d = abs(k.count - n.count)
+            if best == nil || d < best!.1 { best = (v, d) }
+        }
+        return best?.0
+    }
+
+    private static func letterCount(_ s: String) -> Int { s.filter(\.isLetter).count }
+
+    /// Sağ yarıda sol hizalı (x0 ±0.006) ≥4 BÜYÜK HARF etiket sütunu, en az 2'si sözlükte; aynı satırlarda sağda değerler.
+    /// İlk bilinen etiketin üstündeki sütun satırları marka/model başlığıdır (çevrilmez ama panelin parçası sayılır).
+    static func detectVehicle(_ lines: [ScreenLine]) -> (block: ScreenBlock, claimed: Set<Int>)? {
+        struct C { var i: Int; var r: CGRect; var text: String }
+        var cands: [C] = []
+        for (i, l) in lines.enumerated() where l.confidence >= 0.5 && l.rect.minX >= 0.5 && l.rect.maxX <= 0.997 {
+            let t = l.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            if isCapsOnly(t), letterCount(t) >= 3 { cands.append(C(i: i, r: l.rect, text: t)) }
+        }
+        guard cands.count >= 4 else { return nil }
+        var best: [C] = []
+        for a in cands {
+            let m = cands.filter { abs(Double($0.r.minX - a.r.minX)) <= 0.006 }
+            let known = m.filter { vehicleTranslation($0.text) != nil }.count
+            let bestKnown = best.filter { vehicleTranslation($0.text) != nil }.count
+            if m.count > best.count || (m.count == best.count && known > bestKnown) { best = m }
+        }
+        guard best.count >= 4, best.filter({ vehicleTranslation($0.text) != nil }).count >= 2 else { return nil }
+        best.sort { $0.r.minY < $1.r.minY }
+        guard let firstKnown = best.firstIndex(where: { vehicleTranslation($0.text) != nil }) else { return nil }
+        let header = Array(best[..<firstKnown])
+        var rowsC: [C] = []
+        for c in best[firstKnown...] {
+            if let p = rowsC.last, Double(c.r.minY - p.r.maxY) > 0.08 { break }
+            rowsC.append(c)
+        }
+        let colX = Double(best[0].r.minX)
+        let memberIdx = Set(best.map(\.i))
+        var claimed = Set(header.map(\.i))
+        var rows: [[VehicleCell]] = []
+        var rowBoxes: [CGRect] = []
+        var withValues = 0
+        for lab in rowsC {
+            let values = lines.enumerated().filter { (i, l) in
+                guard !memberIdx.contains(i), l.confidence >= 0.3, l.rect.minX >= 0.5, l.rect.minX >= lab.r.maxX - 0.002 else { return false }
+                let ov = min(l.rect.maxY, lab.r.maxY) - max(l.rect.minY, lab.r.minY)
+                return Double(ov) >= 0.5 * Double(min(l.rect.height, lab.r.height))
+            }.sorted { $0.element.rect.minX < $1.element.rect.minX }
+            let known = vehicleTranslation(lab.text)
+            if known == nil && values.isEmpty { continue }   // bilinmeyen ve değersiz satır panel satırı değil
+            claimed.insert(lab.i)
+            var cells = [VehicleCell(box: lab.r, source: lab.text, translated: known, isValue: false,
+                                     maxRight: values.first.map { Double($0.element.rect.minX) - 0.02 })]
+            for (i, l) in values {
+                claimed.insert(i)
+                let t = l.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                // Sayı, para, puan: dokunulmaz. Küçük harfli gürültü (logo) da hücre olmaz.
+                guard isCapsOnly(t), letterCount(t) >= 3, letterCount(t) > t.filter(\.isNumber).count else { continue }
+                cells.append(VehicleCell(box: l.rect, source: t, translated: vehicleTranslation(t), isValue: true))
+            }
+            rows.append(cells)
+            rowBoxes.append(lab.r)
+            if !values.isEmpty { withValues += 1 }
+        }
+        guard rows.count >= 2, withValues >= 2, rows.flatMap({ $0 }).contains(where: { $0.translated != nil }) else { return nil }
+        // Panel bölgesindeki artakalan satırlar (sayfa noktaları, R3, logo gürültüsü): panele aittir, başka blok olmaz.
+        let top = Double(best[0].r.minY) - 0.12, bottom = Double(rowsC.last!.r.maxY) + 0.01
+        for (i, l) in lines.enumerated() where Double(l.rect.minX) >= colX - 0.03 && Double(l.rect.minY) >= top && Double(l.rect.maxY) <= bottom { claimed.insert(i) }
+        let cells = rows.flatMap { $0 }
+        let box = cells.dropFirst().reduce(cells[0].box) { $0.union($1.box) }
+        let hs = rowBoxes.map { Double($0.height) }.sorted()
+        let block = ScreenBlock(kind: .vehicle, text: cells.map(\.source).joined(separator: "\n"), title: nil, speaker: nil, box: box,
+                                lineHeight: hs[hs.count / 2], slot: "vehicle", rows: rows)
+        return (block, claimed)
     }
 
     // MARK: Telefon
@@ -386,7 +509,7 @@ public struct ScreenTracker {
 
     private static func produces(_ mode: ScreenMode, _ kind: ScreenKind) -> Bool {
         switch mode {
-        case .game: return kind == .objective || kind == .info || kind == .notify
+        case .game: return kind == .objective || kind == .info || kind == .notify || kind == .vehicle
         case .map, .menu: return kind == .description
         case .phone: return kind == .phone
         }
@@ -415,6 +538,18 @@ public struct ScreenTracker {
             guard seen.insert(b.slot).inserted else { continue }
             var t = tracks[b.slot] ?? Track(kind: b.kind)
             t.absentSince = nil
+            if b.kind == .vehicle {
+                // Araç paneli: kanonik hücre metni birebir aynı 2 ardışık geçişte kararlı; sayfa/içerik değişince yeniden gönder.
+                let sig = b.vehicleSignature
+                if sig == t.candidate { t.stable += 1 } else { t.stable = 1 }
+                t.candidate = sig
+                if t.stable >= 2, !(t.visible && t.shown == sig) {
+                    t.shown = sig; t.visible = true
+                    actions.append(.translate(b))
+                }
+                tracks[b.slot] = t
+                continue
+            }
             let norm = TextMatch.normalize((b.title.map { $0 + " " } ?? "") + b.text)
             if !t.candidate.isEmpty, TextMatch.isSimilar(t.candidate, norm, threshold: Self.similarity) { t.stable += 1 } else { t.stable = 1 }
             t.candidate = norm   // her zaman en son okunanı tut (kayarak gelen bildirim tamamlanınca güncellensin)

@@ -6,7 +6,7 @@
   'use strict';
 
   // TV uygulamasının sürümü: appinfo.json, tv-tizen/config.xml ve tv-android/app/build.gradle ile aynı tutulur.
-  var APP_VERSION = '1.7.3';
+  var APP_VERSION = '1.7.4';
   var t = window.t;
   var config = window.GAMETRANSLATOR_CONFIG || window.GAMETRANSLATOR_CONFIG || {};
   var platform = window.GAMETRANSLATOR_PLATFORM || window.GAMETRANSLATOR_PLATFORM;
@@ -330,6 +330,8 @@
     host.className = 'screen-region';
     host.setAttribute('data-region', name);
     $('screen').appendChild(host);
+    // Ölçüm (offsetWidth/Height) için katman görünür olmalı; gizliyken her şey 0 ölçülür ve sığdırma bozulur.
+    $('screen').className = '';
     var infoPlaced = [];
     var width = window.innerWidth || 1920;
     var height = window.innerHeight || 1080;
@@ -342,6 +344,10 @@
         continue;
       }
       if (!box || !item.text) continue;
+      if (SUB.isLabelItem(item)) {
+        if (regionEnabled(name)) showLabelItem(host, item, box, width, height);
+        continue;
+      }
       if (SUB.isOverItem(item)) {
         if (regionEnabled(name)) infoPlaced.push(showOverItem(host, item, box, width, height));
         continue;
@@ -472,6 +478,41 @@
     el.style.transition = 'opacity 150ms ease-out';
     setTimeout(function () { el.style.opacity = '1'; }, 16);
     return { el: el, rect: { left: rect.left, top: rect.top, width: rect.width, height: el.offsetHeight } };
+  }
+
+  // "label": İngilizce arayüz satırını örten sıkı hücre (araç paneli). Tek satır, koyu arka planda beyaz kalın büyük harf;
+  // yazı İngilizce yazının satır yüksekliğinden başlar, hücreye sığana kadar küçülür (hesap SUB.label*'de).
+  function showLabelItem(host, item, box, width, height) {
+    var g = SUB.labelGeometry(item, box, width, height);
+    var st = SUB.labelStyle(SUB.overTheme(item));
+    var el = document.createElement('div');
+    el.className = 'label-cell';
+    el.textContent = item.text;
+    el.style.background = st.background;
+    el.style.color = st.color;
+    el.style.top = Math.round(g.top) + 'px';
+    el.style.height = Math.round(g.height) + 'px';
+    el.style.lineHeight = Math.round(g.height) + 'px';
+    el.style.paddingLeft = SUB.LABEL_PAD_X + 'px';
+    el.style.paddingRight = SUB.LABEL_PAD_X + 'px';
+    el.style.textAlign = g.align;
+    el.style.opacity = '0';
+    el.style.left = '0px';
+    host.appendChild(el);
+    var size = g.fontSize;
+    for (var guard = 0; guard < 60; guard++) {
+      el.style.fontSize = size + 'px';
+      el.style.width = 'auto';
+      if (SUB.labelFits(g, el.offsetWidth) || size <= 10) break;
+      size -= 1;
+    }
+    var place = SUB.labelPlace(g, el.offsetWidth);
+    el.style.left = place.left + 'px';
+    el.style.width = place.width + 'px';
+    el.style.webkitTransition = 'opacity 120ms ease-out';
+    el.style.transition = 'opacity 120ms ease-out';
+    setTimeout(function () { el.style.opacity = '1'; }, 16);
+    return el;
   }
 
   // "beside": telefonun yanında sohbet paneli (başlıkta kişi adı, "them" solda, "me" sağda mavi). İngilizce gösterilmez.

@@ -59,8 +59,9 @@ Mac, altyazıdan bağımsız olarak oyun ekranındaki metinleri ~1 sn'de bir **t
 | `info` | öğretici/bilgi kutusu | sol üst (x < 0,08, y 0,18–0,55) | `below` |
 | `notify` | telefon mesajı ya da kısa bildirim | sağ alt (mesaj) / sağ üst (ör. "Map updated") | `left` |
 | `description` | harita/menü açıklaması (yalnızca harita ve duraklatma menüsünde) | panel (örn. x 0,55–0,80) | `over` |
+| `vehicle` | araç bilgi paneli (araç taranınca; Mac 1.7.6, TV 1.7.4) | sağ alt panel (x ≥ 0,77) | `label` |
 
-`placement` değerleri: `below` = çeviri İngilizce kutunun altına; `left` = kutunun soluna; `over` = TV Türkçeyi İngilizce kutunun **üzerine** (onu örterek) çizer; `beside` (Mac 1.7.3, TV 1.7.2) = açık telefon konuşması için kutunun **yanında** sohbet paneli (aşağıda).
+`placement` değerleri: `below` = çeviri İngilizce kutunun altına; `left` = kutunun soluna; `over` = TV Türkçeyi İngilizce kutunun **üzerine** (onu örterek) çizer; `beside` (Mac 1.7.3, TV 1.7.2) = açık telefon konuşması için kutunun **yanında** sohbet paneli (aşağıda); `label` (Mac 1.7.6, TV 1.7.4) = araç bilgi panelindeki tek satırlık etiket/değer hücresi (aşağıda).
 
 **Mac → TV: SSE olayı `screen`**
 
@@ -100,10 +101,28 @@ Telefon elde açık bir konuşmadaysa Mac, konuşmayı balon balon ayrı öğe y
 - TV: panel telefonun soluna (sağ kenar = `box.left`·W − 24 px), yer yoksa sağına konur; genişlik min(0,24·W, 460 px), üst kenar `box.top`, en çok yükseklik kutu yüksekliği; taşarsa en eski mesajlar üstten atılır. Yazı 1080p'de 23 px (en az 18), satır aralığı 1,3.
 - `messages` olmayan öğeler eski davranışla (over/left/below) çizilir. Sağ alttaki gelen bildirim kartları (`notify`) değişmedi.
 
+**Araç bilgi paneli (`region":"vehicle"`, `placement":"label"`)**
+
+GTA 6'da araç taranınca çıkan panelin (marka/model başlığı altındaki ETİKET / DEĞER satırları) etiketleri ve sözcük değerleri yerinde çevrilir. Mac, sağ yarıda sol hizalı (x0 ±0,006) ≥4 büyük harfli etiketten en az 2'si sözlükte ise paneli tanır; oyun modu `game` kalır (altyazı sürer). Marka/model başlığı, sayfa noktaları, `R3`, logo gürültüsü ve `BACK` çevrilmez; sayı, para ve puan değerleri de gönderilmez (oyunun yazısı kalır). Panel 2 ardışık geçişte kararlıysa gönderilir, sayfa/içerik değişince yeniden gönderilir, kaybolunca `screen-clear`. Öğe başına bir hücre:
+
+```json
+{"region":"vehicle","duration":60000,"items":[
+  {"text":"ERİŞİM","source":"ACCESS","placement":"label","theme":"dark","line":0.024,
+   "box":{"left":0.770,"top":0.708,"right":0.808,"bottom":0.732},"maxRight":0.899},
+  {"text":"KİLİTLİ","source":"LOCKED","placement":"label","theme":"dark","line":0.021,"align":"right",
+   "box":{"left":0.919,"top":0.708,"right":0.958,"bottom":0.729}}
+]}
+```
+
+- `box`: İngilizce yazının kutusu; `text`: büyük harf Türkçe (sözlük, yoksa çeviri + büyük harf); `line`: kutunun satır yüksekliği.
+- `align` (isteğe bağlı): `"right"` = değer; hücrenin sağ kenarı sabit kalır, Türkçe uzunsa sola uzar. Yoksa etiket gibi sola hizalı, sağa uzar.
+- `maxRight` (isteğe bağlı, normalize): etiketin sağa uzayabileceği en uzak kenar (değerin sol kenarından 0,02 önce). Yoksa en çok genişlik İngilizce kutunun 2,2 katıdır.
+- TV: hücre İngilizce kutuyu yatayda 4 px, dikeyde 2 px payla tam örter (en az bu boyda); `theme:"dark"` için `rgba(52,58,74,0.97)` zemin, beyaz kalın tek satır yazı (`light`: açık zemin, koyu yazı). Yazı 0,8 × `line` × yükseklik px ile başlar, hücreye sığana kadar küçülür (en az 10 px). 120 ms solma girişi. Menüde "Görev ve bilgi kutuları" anahtarına bağlıdır (Mac'te "Bilgi kutuları").
+
 **Mac → TV: SSE olayı `screen-clear`**
 
 ```json
 {"region":"notify"}
 ```
 
-Yalnızca belirtilen türün öğelerini siler. Gövde boş ya da `region` yoksa `"info"` kabul edilir (geriye dönük uyum). Mac şu durumlarda gönderir: tür kesintisiz 2 sn kaybolunca; mod değişince (ör. harita kapanınca `description` hemen temizlenir; haritaya girilince oyun türleri temizlenir); çeviri durdurulunca (4 türün hepsi).
+Yalnızca belirtilen türün öğelerini siler. Gövde boş ya da `region` yoksa `"info"` kabul edilir (geriye dönük uyum). Mac şu durumlarda gönderir: tür kesintisiz 2 sn kaybolunca; mod değişince (ör. harita kapanınca `description` hemen temizlenir; haritaya girilince oyun türleri temizlenir); çeviri durdurulunca (5 türün hepsi).

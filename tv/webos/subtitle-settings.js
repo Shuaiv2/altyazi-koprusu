@@ -380,7 +380,64 @@
     return !!item && typeof item === 'object' && item.placement === 'beside' && besideMessages(item).length > 0;
   }
 
+  // "label": araç bilgi paneli gibi arayüz satırlarında tek hücre. Hücre İngilizce yazının kutusunu yatayda 4 px, dikeyde 2 px
+  // payla tam örter. Etiket sağa (align yok/"left"), değer sola ("right") uzayabilir; en geniş hücre İngilizce kutunun 2.2 katı
+  // ya da (maxRight, normalize) verilmişse o kenara kadar. Yazı tek satır, boyu 0.8 x satır yüksekliği; sığana kadar küçülür.
+  var LABEL_PAD_X = 4;
+  var LABEL_PAD_Y = 2;
+  var LABEL_WIDTH_FACTOR = 2.2;
+  var LABEL_MIN_FONT = 10;
+
+  function isLabelItem(item) {
+    return !!item && typeof item === 'object' && item.placement === 'label' && typeof item.text === 'string' && item.text.length > 0;
+  }
+
+  function labelFontSize(line, vh) {
+    return Math.max(LABEL_MIN_FONT, Math.round(0.8 * num(line, 0.03) * vh));
+  }
+
+  // Sığma kısıtlarını verir: {align, top, height, minWidth, maxWidth, anchor (sol hizada sol kenar, sağ hizada sağ kenar), fontSize}.
+  function labelGeometry(item, box, vw, vh) {
+    var bl = box.left * vw, br = box.right * vw, bt = box.top * vh, bb = box.bottom * vh;
+    var bw = Math.max(1, br - bl);
+    var right = !!item && item.align === 'right';
+    var minWidth = bw + 2 * LABEL_PAD_X;
+    var maxWidth = LABEL_WIDTH_FACTOR * bw + 2 * LABEL_PAD_X;
+    var anchor;
+    if (right) {
+      anchor = Math.min(vw, br + LABEL_PAD_X);
+      maxWidth = Math.min(maxWidth, anchor);
+    } else {
+      anchor = Math.max(0, bl - LABEL_PAD_X);
+      if (item && typeof item.maxRight === 'number' && !isNaN(item.maxRight)) maxWidth = item.maxRight * vw - anchor;
+      maxWidth = Math.min(maxWidth, vw - anchor);
+    }
+    maxWidth = Math.max(minWidth, maxWidth);
+    var line = item && typeof item.line === 'number' && item.line > 0 ? item.line : (bb - bt) / vh;
+    return {
+      align: right ? 'right' : 'left', top: bt - LABEL_PAD_Y, height: (bb - bt) + 2 * LABEL_PAD_Y,
+      minWidth: minWidth, maxWidth: maxWidth, anchor: anchor, fontSize: labelFontSize(line, vh)
+    };
+  }
+
+  // Ölçülen yazı genişliğine (iç boşluk dahil) göre hücrenin yeri: {left, width}. Hücre en az İngilizce kutuyu örter.
+  function labelPlace(g, contentWidth) {
+    var width = Math.min(g.maxWidth, Math.max(g.minWidth, num(contentWidth, 0)));
+    var left = g.align === 'right' ? Math.max(0, g.anchor - width) : g.anchor;
+    return { left: Math.round(left), width: Math.round(width) };
+  }
+
+  function labelFits(g, contentWidth) {
+    return num(contentWidth, 0) <= g.maxWidth + 0.5;
+  }
+
+  function labelStyle(theme) {
+    if (theme === 'light') return { background: 'rgba(238, 240, 244, 0.97)', color: '#14161c' };
+    return { background: 'rgba(52, 58, 74, 0.97)', color: '#ffffff' };
+  }
+
   // Bölge -> menü anahtarı: 'phone' ve 'notify' telefonMesajları, geri kalan bölgeler bilgi kutuları anahtarına bağlı.
+  // 'vehicle' (araç paneli) bilgi kutuları anahtarına bağlıdır.
   function toggleKeyForRegion(region) {
     return (region === 'phone' || region === 'notify') ? 'phoneMessages' : 'infoBoxes';
   }
@@ -443,6 +500,14 @@
     besideFirstVisible: besideFirstVisible,
     besideMessages: besideMessages,
     isBesideItem: isBesideItem,
+    isLabelItem: isLabelItem,
+    labelFontSize: labelFontSize,
+    labelGeometry: labelGeometry,
+    labelPlace: labelPlace,
+    labelFits: labelFits,
+    labelStyle: labelStyle,
+    LABEL_PAD_X: LABEL_PAD_X,
+    LABEL_PAD_Y: LABEL_PAD_Y,
     overFontSize: overFontSize,
     isOverItem: isOverItem,
     overTheme: overTheme,

@@ -1784,6 +1784,8 @@ final class AppState {
     /// yuva -> TV'ye gönderilmiş öğe (aynı türün birden çok yuvası birlikte gönderilir)
     @ObservationIgnored private var screenItems: [String: [String: Any]] = [:]
     @ObservationIgnored private var screenKinds: [String: ScreenKind] = [:]
+    /// Araç paneli: hücre başına bir TV öğesi (yuva "vehicle" tek, çok öğeli).
+    @ObservationIgnored private var vehicleItems: [[String: Any]] = []
     @ObservationIgnored private var screenGen: [String: Int] = [:]
     @ObservationIgnored private var lastScreenMode: ScreenMode = .game
     /// Ekran geçişinin (debounce edilmiş) modu menu/map/phone iken altyazı hattı susturulur.
@@ -2495,8 +2497,8 @@ final class AppState {
         self.sentenceJoiner.reset()
         self.fillerTask?.cancel()
         self.resendGuard.reset()
-        screenTracker.reset(); screenSeq += 1; screenItems = [:]; screenKinds = [:]; screenGen = [:]; lastScreenMode = .game; subtitleSuppressedByScreenMode = false
-        for k in ["objective", "info", "notify", "description"] { server.clearScreen(region: k) }
+        screenTracker.reset(); screenSeq += 1; screenItems = [:]; screenKinds = [:]; vehicleItems = []; screenGen = [:]; lastScreenMode = .game; subtitleSuppressedByScreenMode = false
+        for k in ["objective", "info", "notify", "description", "vehicle"] { server.clearScreen(region: k) }
         self.liveInfo = ""
         self.liveEnglish = "PS5 Canlı Akışı Bekleniyor"
         self.liveTurkish = "Çeviri Durduruldu"
@@ -2903,7 +2905,7 @@ final class AppState {
     private func screenKindEnabled(_ k: ScreenKind) -> Bool {
         switch k {
         case .objective: return objectiveEnabled
-        case .info: return infoEnabled
+        case .info, .vehicle: return infoEnabled
         case .notify: return notifyEnabled
         case .description: return descriptionEnabled
         case .phone: return notifyEnabled
@@ -3007,6 +3009,7 @@ final class AppState {
 
     private func translateScreenBlock(_ b: ScreenBlock, gen: Int, theme: String, dbg: Bool) async {
         if !b.messages.isEmpty { await translatePhoneConversation(b, gen: gen, theme: theme, dbg: dbg); return }
+        if b.kind == .vehicle { await translateVehicleBlock(b, gen: gen, theme: theme, dbg: dbg); return }
         // Gövde "\n" ile ayrılmış parçalardan oluşabilir (başlık/gövde); her parça ayrı çevrilir.
         var parts: [String] = []
         for seg in b.text.components(separatedBy: "\n") where !seg.isEmpty {
@@ -3040,6 +3043,38 @@ final class AppState {
         }
     }
 
+    /// Araç bilgi paneli: sözlükte olmayan etiket/değer sözcükleri normal çevirmenle çevrilip büyük harfe çevrilir;
+    /// TV'ye hücre başına bir "label" öğesi gider (sayı/para/puan değerleri hiç gönderilmez, oyunun yazısı kalır).
+    private func translateVehicleBlock(_ b: ScreenBlock, gen: Int, theme: String, dbg: Bool) async {
+        var items: [[String: Any]] = []
+        var shown: [String] = []
+        for row in b.rows {
+            for c in row {
+                var tr = c.translated
+                if tr == nil {
+                    let r = await translateText(GameEnglish.plain(c.source.capitalized))
+                    guard let t = r.text, !t.isEmpty else { await MainActor.run { self.screenTracker.forgetShown(slot: b.slot) }; return }
+                    tr = t.uppercased(with: Locale(identifier: "tr"))
+                }
+                var item: [String: Any] = ["text": tr!, "source": c.source, "placement": "label", "theme": theme, "line": Double(c.box.height),
+                                           "box": ["left": Double(c.box.minX), "top": Double(c.box.minY), "right": Double(c.box.maxX), "bottom": Double(c.box.maxY)]]
+                if c.isValue { item["align"] = "right" }
+                if let mr = c.maxRight, !c.isValue { item["maxRight"] = mr }
+                items.append(item)
+                shown.append(tr!)
+            }
+        }
+        let finalItems = items, finalShown = shown.joined(separator: " ")
+        await MainActor.run {
+            guard self.isRunning, self.screenGen[b.slot] == gen else { return }
+            self.vehicleItems = finalItems
+            self.screenItems[b.slot] = ["text": finalShown]
+            self.screenKinds[b.slot] = b.kind
+            self.liveInfo = finalShown
+            self.sendScreenKind(b.kind)
+        }
+    }
+
     /// Açık telefon konuşması: her balon ayrı çevrilir; TV'ye telefonun yanında tek "beside" sohbet paneli gider.
     private func translatePhoneConversation(_ b: ScreenBlock, gen: Int, theme: String, dbg: Bool) async {
         var msgs: [[String: Any]] = []
@@ -3067,9 +3102,9 @@ final class AppState {
     /// Bir türün şu an görünen tüm yuvalarını TV'ye gönderir; hiç yoksa o türü temizler.
     private func sendScreenKind(_ kind: ScreenKind) {
         let slots = screenKinds.filter { $0.value == kind }.map(\.key).sorted()
-        let items = slots.compactMap { screenItems[$0] }
+        let items: [[String: Any]] = kind == .vehicle ? (slots.isEmpty ? [] : vehicleItems) : slots.compactMap { screenItems[$0] }
         if items.isEmpty { server.clearScreen(region: kind.rawValue); if screenItems.isEmpty { liveInfo = "" } }
-        else { server.sendScreen(region: kind.rawValue, items: items) }
+        else { server.sendScreen(region: kind.rawValue, items: items, durationMs: kind == .vehicle ? 60000 : 15000) }
     }
 
     /// Altyazı yok (ya da hepsi elendi): kararlılık izleyicisine boş kare bildir; ekrandan kalktıysa TV'yi temizle.
@@ -3646,7 +3681,7 @@ struct MainWindowView: View {
             Button("Tamam", role: .cancel) { }
             Button("Lisans bilgileri") { state.showLicense = true }
         } message: {
-            Text("PlayStation 5 ve Akıllı TV için Sıfır Gecikmeli Yapay Zeka Çeviri Motoru.\n\nSürüm: 1.7.5\nSSE TV Portu: 8787")
+            Text("PlayStation 5 ve Akıllı TV için Sıfır Gecikmeli Yapay Zeka Çeviri Motoru.\n\nSürüm: 1.7.6\nSSE TV Portu: 8787")
         }
         .alert("Lisans bilgileri", isPresented: $state.showLicense) {
             Button("Tamam", role: .cancel) { }

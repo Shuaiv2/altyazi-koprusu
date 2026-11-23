@@ -9,6 +9,9 @@
     count++;
     if (!cond) throw new Error('FAIL: ' + message);
   }
+  function near(actual, expected, message) {
+    ok(Math.abs(actual - expected) < 0.51, message + ' (beklenen ' + expected + ', gelen ' + actual + ')');
+  }
   function eq(actual, expected, message) {
     ok(actual === expected, message + ' (beklenen ' + expected + ', gelen ' + actual + ')');
   }
@@ -249,6 +252,57 @@
   ok(!S.isInfoItem({ box: { left: 0.1, top: 0.8, right: 0.3, bottom: 0.9 } }), 'placement yok, alttaki kutu -> hayır');
   ok(!S.isInfoItem({ box: { left: 0.1, top: 0.1, right: 0.6, bottom: 0.2 } }), 'placement yok, geniş kutu -> hayır');
   ok(!S.isInfoItem({ box: gtaBox, paragraphs: true }), 'paragraphs -> hayır');
+
+  // --- "label" hücresi (araç paneli) ---
+  var W = 1920, H = 1080;
+  var lbl = { text: 'ERİŞİM', placement: 'label', box: { left: 0.770, top: 0.708, right: 0.808, bottom: 0.732 }, line: 0.024 };
+  ok(S.isLabelItem(lbl), 'label öğesi tanınır');
+  ok(!S.isLabelItem({ placement: 'label', text: '' }) && !S.isLabelItem({ placement: 'over', text: 'x' }), 'boş/başka placement label değil');
+  eq(S.toggleKeyForRegion('vehicle'), 'infoBoxes', 'vehicle -> bilgi kutuları anahtarı');
+  var g = S.labelGeometry(lbl, lbl.box, W, H);
+  var bw = (0.808 - 0.770) * W;
+  eq(g.align, 'left', 'varsayılan sola hizalı');
+  near(g.anchor, 0.770 * W - 4, 'sol kenar = kutu - 4px');
+  near(g.top, 0.708 * H - 2, 'üst = kutu - 2px');
+  near(g.height, 0.024 * H + 4, 'yükseklik = kutu + 4px');
+  near(g.minWidth, bw + 8, 'en az genişlik İngilizce kutu + 8');
+  near(g.maxWidth, 2.2 * bw + 8, 'en çok genişlik 2.2x kutu (+8)');
+  eq(g.fontSize, Math.round(0.8 * 0.024 * H), 'yazı boyu 0.8 x satır');
+  var p1 = S.labelPlace(g, 20);
+  eq(p1.width, Math.round(g.minWidth), 'kısa yazı: hücre en az İngilizce kutuyu örter');
+  eq(p1.left, Math.round(g.anchor), 'sola hizalı: sol kenar sabit');
+  var p2 = S.labelPlace(g, 100);
+  eq(p2.width, 100, 'orta uzunluk: yazı kadar');
+  var p3 = S.labelPlace(g, 5000);
+  eq(p3.width, Math.round(g.maxWidth), 'çok uzun: en çok genişliğe kenetlenir');
+  ok(S.labelFits(g, 100) && !S.labelFits(g, g.maxWidth + 5), 'sığma denetimi (küçültme gerektirir)');
+  // maxRight: değerin sol kenarından 0.02 önce
+  var lm = S.labelGeometry({ placement: 'label', maxRight: 0.899, line: 0.024 }, lbl.box, W, H);
+  near(lm.maxWidth, 0.899 * W - (0.770 * W - 4), 'maxRight sağ sınırı belirler');
+  var lm2 = S.labelGeometry({ placement: 'label', maxRight: 0.78, line: 0.024 }, lbl.box, W, H);
+  eq(lm2.maxWidth, lm2.minWidth, 'maxRight kutudan darsa en az İngilizce kutu korunur');
+  var lm3 = S.labelGeometry({ placement: 'label', maxRight: 1.5, line: 0.024 }, lbl.box, W, H);
+  near(lm3.anchor + lm3.maxWidth, W, 'maxRight ekranı aşamaz');
+  // sağ hizalı değer: sağ kenar sabit, sola uzar
+  var val = { placement: 'label', align: 'right', box: { left: 0.951, top: 0.796, right: 0.978, bottom: 0.819 }, line: 0.023 };
+  var gr = S.labelGeometry(val, val.box, W, H);
+  near(gr.anchor, 0.978 * W + 4, 'sağ hizalı: sağ kenar = kutu + 4px');
+  var pr = S.labelPlace(gr, 120);
+  eq(pr.left + pr.width, Math.round(gr.anchor), 'sağ hizalı: sağ kenar sabit');
+  eq(pr.width, 120, 'sağ hizalı genişlik');
+  ok(pr.left < Math.round(0.951 * W), 'sağ hizalı değer sola uzar');
+  var pr2 = S.labelPlace(gr, 5000);
+  near(pr2.width, 2.2 * (0.978 - 0.951) * W + 8, 'sağ hizalı en çok 2.2x');
+  var edge = S.labelGeometry({ placement: 'label', align: 'right', line: 0.02 }, { left: 0.001, top: 0.1, right: 0.01, bottom: 0.12 }, W, H);
+  ok(S.labelPlace(edge, 5000).left >= 0, 'sağ hizalı ekranın solundan taşmaz');
+  // sığdır döngüsü modeli: genişlik yazı boyuyla orantılı ise sığana kadar küçülür
+  function modelWidth(sz) { return 8 + 14 * sz * 0.62; }   // 14 karakterlik Türkçe etiket
+  var size = g.fontSize;
+  while (!S.labelFits(g, modelWidth(size)) && size > 10) size -= 1;
+  ok(S.labelFits(g, modelWidth(size)) && size >= 10 && size < g.fontSize, 'uzun Türkçe sığana kadar küçülür (' + g.fontSize + ' -> ' + size + ')');
+  eq(S.labelFontSize(0.001, H), 10, 'yazı boyu alt sınırı');
+  eq(S.labelStyle('dark').background, 'rgba(52, 58, 74, 0.97)', 'koyu tema zemini');
+  ok(S.labelStyle('light').color !== S.labelStyle('dark').color, 'açık tema ayrı renk');
 
   print('PASS: ' + count + ' denetim, ' + checked + ' computeRect kombinasyonu (' + overflow + ' taşan içerik)');
 })();

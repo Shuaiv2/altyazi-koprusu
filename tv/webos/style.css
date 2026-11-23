@@ -91,6 +91,15 @@ html, body {
 }
 #screen .over-item .over-speaker { font-weight: 700; font-size: 1.08em; }
 #screen .over-item .over-title { font-weight: 700; }
+/* "label": araç paneli hücresi; tek satır, koyu arka plan üstünde beyaz kalın büyük harf (renk/zemin temadan, satır içi) */
+#screen .label-cell {
+  position: absolute;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  font-weight: 700;
+  border-radius: 3px;
+}
 /* "beside": telefonun yanındaki sohbet paneli */
 #screen .chat-panel {
   position: absolute;

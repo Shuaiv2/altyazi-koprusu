@@ -357,6 +357,74 @@ do {
     expect(tr3.currentMode == .menu, "currentMode menu onaylandı")
 }
 
+// --- Araç bilgi paneli (GTA 6, iki gerçek kare)
+let veh1 = lines([psToast,
+    (0.940, 0.592, 0.949, 0.605, 1.0, "•"), (0.967, 0.581, 0.984, 0.612, 1.0, "R3"),
+    (0.770, 0.630, 0.799, 0.651, 1.0, "VAPID"), (0.770, 0.656, 0.834, 0.677, 1.0, "MONTAGNE XL"), (0.919, 0.638, 0.959, 0.672, 0.6, "Vatila"),
+    (0.770, 0.708, 0.808, 0.732, 1.0, "ACCESS"), (0.919, 0.708, 0.958, 0.729, 1.0, "LOCKED"),
+    (0.770, 0.752, 0.818, 0.775, 1.0, "SECURITY"), (0.913, 0.752, 0.958, 0.775, 1.0, "ALARMED"),
+    (0.770, 0.796, 0.815, 0.819, 1.0, "TRACKER"), (0.951, 0.796, 0.978, 0.819, 1.0, "NONE"),
+    (0.770, 0.839, 0.827, 0.863, 1.0, "SELL VALUE"), (0.949, 0.840, 0.975, 0.863, 1.0, "$550"),
+    (0.770, 0.886, 0.859, 0.907, 1.0, "COST TO REGISTER"), (0.939, 0.884, 0.975, 0.910, 1.0, "$3,400"),
+    (0.930, 0.951, 0.961, 0.974, 1.0, "BACK")])
+let rv1 = ScreenText.analyze(veh1)
+expect(rv1.mode == .game, "araç 1 mod game: \(rv1.mode)")
+expect(rv1.blocks.count == 1 && rv1.blocks[0].kind == .vehicle && rv1.blocks[0].slot == "vehicle", "araç 1 tek vehicle bloğu: \(rv1.blocks.map { "\($0.kind) \($0.text)" })")
+if let vb = rv1.blocks.first {
+    let rows = vb.rows.map { $0.map { "\($0.source)=\($0.translated ?? "?")" } }
+    expect(rows == [["ACCESS=ERİŞİM", "LOCKED=KİLİTLİ"], ["SECURITY=GÜVENLİK", "ALARMED=ALARMLI"], ["TRACKER=TAKİP CİHAZI", "NONE=YOK"],
+                    ["SELL VALUE=SATIŞ DEĞERİ"], ["COST TO REGISTER=KAYIT ÜCRETİ"]], "araç 1 hücreler: \(rows)")
+    let all = vb.rows.flatMap { $0 }.map(\.source)
+    for bad in ["VAPID", "MONTAGNE XL", "BACK", "R3", "•", "Vatila", "$550", "$3,400"] { expect(!all.contains(bad), "araç 1 \(bad) çevrilmez") }
+    expect(vb.rows[0][0].maxRight.map { abs($0 - 0.899) < 1e-6 } == true && vb.rows[0][1].isValue && vb.rows[0][1].maxRight == nil, "araç 1 maxRight/isValue")
+    expect(vb.rows[3][0].maxRight.map { abs($0 - 0.929) < 1e-6 } == true, "araç 1 para değeri maxRight sınırı")
+}
+let veh2 = lines([psToast,
+    (0.937, 0.483, 0.959, 0.504, 1.0, "• •"), (0.770, 0.525, 0.800, 0.545, 1.0, "VAPID"), (0.770, 0.550, 0.834, 0.571, 1.0, "MOSES' RIATA"),
+    (0.770, 0.597, 0.802, 0.620, 1.0, "SPEED"), (0.958, 0.597, 0.975, 0.620, 1.0, "4.4"),
+    (0.770, 0.654, 0.842, 0.677, 1.0, "ACCELERATION"), (0.958, 0.654, 0.975, 0.677, 1.0, "5.7"),
+    (0.770, 0.710, 0.865, 0.734, 1.0, "ASPHALT HANDLING"), (0.958, 0.710, 0.975, 0.734, 1.0, "3.8"),
+    (0.770, 0.767, 0.871, 0.791, 1.0, "OFF-ROAD HANDLING"), (0.958, 0.767, 0.975, 0.791, 1.0, "6.6"),
+    (0.770, 0.824, 0.821, 0.848, 1.0, "STRENGTH"), (0.958, 0.824, 0.975, 0.848, 1.0, "6.2"),
+    (0.770, 0.886, 0.807, 0.907, 1.0, "RATING"), (0.897, 0.886, 0.917, 0.907, 1.0, "631"), (0.938, 0.886, 0.958, 0.907, 1.0, "474"),
+    (0.930, 0.951, 0.961, 0.974, 1.0, "BACK")])
+let rv2 = ScreenText.analyze(veh2)
+expect(rv2.mode == .game && rv2.blocks.count == 1 && rv2.blocks[0].kind == .vehicle, "araç 2 tek blok: \(rv2.blocks.map(\.text))")
+if let vb = rv2.blocks.first {
+    let cells = vb.rows.flatMap { $0 }
+    expect(cells.map(\.translated) == ["HIZ", "HIZLANMA", "ASFALT YOL TUTUŞU", "ARAZİ YOL TUTUŞU", "DAYANIKLILIK", "PUAN"], "araç 2 etiketler: \(cells.map { $0.translated ?? "nil" })")
+    expect(cells.allSatisfy { !$0.isValue }, "araç 2 sayılar dokunulmaz")
+    expect(!cells.map(\.source).contains("MOSES' RIATA") && !cells.map(\.source).contains("VAPID"), "araç 2 başlık çevrilmez")
+}
+expect(ScreenText.vehicleTranslation("ALARMEO") == "ALARMLI" && ScreenText.vehicleTranslation("UNLOCKED") == "AÇIK" && ScreenText.vehicleTranslation("KEY CLONER") == "ANAHTAR KOPYALAYICI", "sözlük bulanık eşleşme")
+expect(ScreenText.vehicleTranslation("MONTAGNE XL") == nil && ScreenText.vehicleTranslation("OFF-ROAD HANDLING") == "ARAZİ YOL TUTUŞU", "sözlük dışı nil")
+// Bilinmeyen değer sözcüğü çevrilmek üzere hücre olur (translated nil); küçük harfli gürültü olmaz.
+let veh3 = lines([(0.770, 0.700, 0.808, 0.724, 1.0, "ACCESS"), (0.919, 0.700, 0.958, 0.721, 1.0, "SEALED"),
+    (0.770, 0.744, 0.818, 0.767, 1.0, "SECURITY"), (0.913, 0.744, 0.958, 0.767, 1.0, "ALARMED"),
+    (0.770, 0.788, 0.815, 0.811, 1.0, "TRACKER"), (0.951, 0.788, 0.978, 0.811, 1.0, "NONE"), (0.770, 0.832, 0.827, 0.855, 1.0, "SPEED")])
+let rv3 = ScreenText.analyze(veh3)
+expect(rv3.blocks.first?.rows.first?.last.map { $0.isValue && $0.translated == nil && $0.source == "SEALED" } == true, "bilinmeyen değer hücresi")
+// Olumsuz: normal bilgi kutusu ve altyazı karesi araç paneli sayılmaz.
+let rn1 = ScreenText.analyze(lines([psToast, (0.025, 0.282, 0.218, 0.308, 1.0, "Call Joey from your Contacts"), (0.048, 0.312, 0.225, 0.339, 1.0, "or check the engine to tow"),
+    (0.025, 0.344, 0.176, 0.370, 1.0, "and repair your vehicle.")]))
+expect(rn1.blocks.count == 1 && rn1.blocks[0].kind == .info, "olumsuz: bilgi kutusu: \(rn1.blocks.map { $0.kind.rawValue })")
+let rn2 = ScreenText.analyze(lines([(0.300, 0.820, 0.700, 0.848, 1.0, "I told you not to come back here"), (0.380, 0.860, 0.620, 0.888, 1.0, "ACCESS"),
+    (0.770, 0.708, 0.808, 0.732, 1.0, "SPEED"), (0.770, 0.752, 0.818, 0.775, 1.0, "RATING"), (0.770, 0.800, 0.818, 0.823, 1.0, "TITLE"), (0.770, 0.850, 0.818, 0.873, 1.0, "MENU")]))
+expect(!rn2.blocks.contains { $0.kind == .vehicle }, "olumsuz: sütun yeterli ama değer satırı yok -> araç değil")
+// İzleyici: araç bloğu 2 geçişte gönderilir, değişen içerikte yeniden, kaybolunca temizlenir.
+do {
+    var tv = ScreenTracker()
+    let a = rv1.blocks[0]
+    var b = a; b.rows[0][1].translated = "AÇIK"; b.rows[0][1].source = "UNLOCKED"
+    var sends = 0, clears = 0
+    func f(_ x: ScreenBlock?, _ t: Double) { for act in tv.feed(x.map { [$0] } ?? [], mode: .game, at: t) { if case .translate = act { sends += 1 }; if case .clear = act { clears += 1 } } }
+    f(a, 0); expect(sends == 0, "araç: ilk geçiş çevrilmez")
+    f(a, 1); expect(sends == 1, "araç: 2. geçişte çevrilir")
+    f(a, 2); expect(sends == 1, "araç: aynı içerik yeniden gönderilmez")
+    f(b, 3); f(b, 4); expect(sends == 2, "araç: içerik değişince yeniden gönderilir: \(sends)")
+    f(nil, 5); f(nil, 8); expect(clears == 1, "araç: kaybolunca temizlenir: \(clears)")
+}
+
 print("\(total - failures)/\(total) test geçti")
 exit(failures == 0 ? 0 : 1)
 }
