@@ -33,7 +33,7 @@
             <Run Text="Lisans: AGPL-3.0 — " /><Hyperlink NavigateUri="https://www.gnu.org/licenses/agpl-3.0.html" RequestNavigate="OnLink">https://www.gnu.org/licenses/agpl-3.0.html</Hyperlink>
         </TextBlock>
         <TextBlock Style="{StaticResource SecondaryText}" TextWrapping="Wrap" Margin="0,4,0,0">
-            <Run Text="Kaynak kod: " /><Hyperlink NavigateUri="https://github.com/Shuaiv2/altyazi-koprusu" RequestNavigate="OnLink">https://github.com/Shuaiv2/altyazi-koprusu</Hyperlink>
+            <Run Text="Kaynak kod: " /><Hyperlink NavigateUri="https://github.com/Shuaiv2/ludora" RequestNavigate="OnLink">https://github.com/Shuaiv2/ludora</Hyperlink>
         </TextBlock>
 
         <TextBlock Text="Remote Play bağlantısı chiaki-ng (AGPL-3.0) ile sağlanır. Çeviri modeli: OPUS-MT, University of Helsinki (CC BY 4.0). Ayrıntılar üçüncü taraf bildiriminde." Style="{StaticResource SecondaryText}" TextAlignment="Center" TextWrapping="Wrap" Margin="0,16,0,0" />

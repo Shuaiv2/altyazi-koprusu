@@ -741,7 +741,7 @@ public partial class OnboardingView : UserControl
         if (File.Exists(path))
             Process.Start("explorer.exe", $"/select,\"{path}\"");
         else
-            Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/altyazi-koprusu/releases") { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/ludora/releases") { UseShellExecute = true });
     }
 
     private void OnOpenLgIpk(object sender, RoutedEventArgs e)
@@ -750,7 +750,7 @@ public partial class OnboardingView : UserControl
         if (File.Exists(path))
             Process.Start("explorer.exe", $"/select,\"{path}\"");
         else
-            Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/altyazi-koprusu/releases") { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/ludora/releases") { UseShellExecute = true });
     }
 
     private void OnOpenAndroidApk(object sender, RoutedEventArgs e)
@@ -759,12 +759,12 @@ public partial class OnboardingView : UserControl
         if (File.Exists(path))
             Process.Start("explorer.exe", $"/select,\"{path}\"");
         else
-            Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/altyazi-koprusu/releases") { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/ludora/releases") { UseShellExecute = true });
     }
 
     private void OnOpenGuidePdf(object sender, RoutedEventArgs e)
     {
-        Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/altyazi-koprusu/raw/main/docs/GameTranslator_TV_Kurulum_Rehberi.pdf") { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/ludora/raw/main/docs/GameTranslator_TV_Kurulum_Rehberi.pdf") { UseShellExecute = true });
     }
 
     // ==========================================

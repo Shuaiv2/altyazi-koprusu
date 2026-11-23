@@ -1,7 +1,7 @@
 #define MyAppName "Ludora"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Ludora"
-#define MyAppURL "https://github.com/Shuaiv2/altyazi-koprusu"
+#define MyAppURL "https://github.com/Shuaiv2/ludora"
 #define MyAppExeName "Ludora.exe"
 #define MySourceDir "C:\Ludora"
 

@@ -147,5 +147,5 @@ public partial class TvAppCard : UserControl
     }
 
     private void OnGuide(object sender, RoutedEventArgs e) =>
-        Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/altyazi-koprusu/blob/main/docs/tv-kurulum.md#android-tv--google-tv") { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/ludora/blob/main/docs/tv-kurulum.md#android-tv--google-tv") { UseShellExecute = true });
 }

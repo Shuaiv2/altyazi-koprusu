@@ -20,7 +20,7 @@ PS5 ──Remote Play (2. PSN hesabı)──► Mac: OCR + çeviri ──(yerel 
 
 ## İndirme
 
-[Sürümler](https://github.com/Shuaiv2/altyazi-koprusu/releases) sayfasından:
+[Sürümler](https://github.com/Shuaiv2/ludora/releases) sayfasından:
 
 - **Windows (Xbox):** `Ludora-Windows-<sürüm>.zip` + `Ludora-Kurulum-Rehberi.pdf`
 - **Mac (PS5):** `Ludora-Mac-<sürüm>.zip` (TV uygulaması Mac uygulamasının içinden kurulur)

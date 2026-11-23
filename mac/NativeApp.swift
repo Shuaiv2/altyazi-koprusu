@@ -3651,7 +3651,7 @@ struct MainWindowView: View {
         .alert("Lisans bilgileri", isPresented: $state.showLicense) {
             Button("Tamam", role: .cancel) { }
         } message: {
-            Text("Ludora, CouchSubs ve GameTranslator tabanlıdır (AGPL-3.0).\nKaynak kod: https://github.com/Shuaiv2/altyazi-koprusu")
+            Text("Ludora, CouchSubs ve GameTranslator tabanlıdır (AGPL-3.0).\nKaynak kod: https://github.com/Shuaiv2/ludora")
         }
     }
 
@@ -4833,7 +4833,7 @@ struct MainWindowView: View {
                         Spacer()
 
                         Button {
-                            if let url = URL(string: "https://github.com/Shuaiv2/altyazi-koprusu") {
+                            if let url = URL(string: "https://github.com/Shuaiv2/ludora") {
                                 NSWorkspace.shared.open(url)
                             }
                         } label: {
