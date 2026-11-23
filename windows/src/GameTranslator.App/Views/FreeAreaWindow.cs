@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+using GameTranslator.App.Theme;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -50,7 +51,7 @@ public sealed class FreeAreaWindow : Window
     {
         this.controller = controller;
         this.frame = frame;
-        Title = "Altyazı Köprüsü";
+        Title = "Ludora";
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
         WindowState = WindowState.Maximized;
@@ -94,7 +95,7 @@ public sealed class FreeAreaWindow : Window
 
         var hint = new TextBlock
         {
-            Text = Localizer.Current["Drag over the text you want to translate. Esc or right-click closes."],
+            Text = BrandedText.Current["Drag over the text you want to translate. Esc or right-click closes."],
             Foreground = Brushes.White,
             Background = new SolidColorBrush(Color.FromArgb(0xB3, 0, 0, 0)),
             Padding = new Thickness(16, 8, 16, 8),
@@ -156,7 +157,7 @@ public sealed class FreeAreaWindow : Window
             return;
         }
 
-        var text = Localizer.Current;
+        var text = BrandedText.Current;
         var token = ++version;
         ShowResult(text["Translating…"], rect);
         var region = new CropRegion(rect.Top / frame.Height, rect.Bottom / frame.Height, rect.Left / frame.Width, rect.Right / frame.Width);

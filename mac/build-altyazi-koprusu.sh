@@ -18,7 +18,7 @@ trap 'rm -rf "$WORK"' EXIT
 
 echo "==> Swift derleniyor"
 CORE="$ROOT/core/Sources/GameTranslatorCore"
-swiftc -O -parse-as-library -target arm64-apple-macos14.0 "$DIR/NativeApp.swift" "$DIR/SubtitleFilter.swift" "$DIR/SentenceJoiner.swift" "$DIR/InfoBox.swift" "$DIR/ScreenText.swift" \
+swiftc -O -parse-as-library -target arm64-apple-macos14.0 "$DIR/NativeApp.swift" "$DIR/SubtitleFilter.swift" "$DIR/SentenceJoiner.swift" "$DIR/InfoBox.swift" "$DIR/ScreenText.swift" "$DIR/BubbleColor.swift" \
   "$CORE/SubtitleStabilizer.swift" "$CORE/OcrNoise.swift" "$CORE/TextMatch.swift" "$CORE/GameEnglish.swift" -o "$WORK/AltyaziKoprusu"
 
 echo "==> Paket hazırlanıyor: $APP"
@@ -45,7 +45,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.6.0</string>
+	<string>1.7.4</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>

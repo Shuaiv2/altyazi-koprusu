@@ -8,12 +8,12 @@ using Velopack.Sources;
 namespace GameTranslator.App.Services;
 
 /// <summary>
-/// GitHub'daki sürümlerden güncelleme (Velopack). Yalnız kurulum dosyasıyla (GameTranslator-Setup.exe) kurulan uygulama
+/// GitHub'daki sürümlerden güncelleme (Velopack). Yalnız kurulum dosyasıyla (Ludora-Setup.exe) kurulan uygulama
 /// kendini günceller; zip'ten açılan eski kopyada sürüm sayfası açılır.
 /// </summary>
 internal sealed class Updater : IUpdater
 {
-    private const string Repository = "https://github.com/Sefflex/GameTranslate";
+    private const string Repository = "https://github.com/Shuaiv2/altyazi-koprusu";
     private readonly UpdateManager? manager;
     private UpdateInfo? pending;
 
@@ -52,9 +52,9 @@ internal sealed class Updater : IUpdater
         try
         {
             using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("GameTranslator");
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("Ludora");
             using var document = System.Text.Json.JsonDocument.Parse(
-                await http.GetStringAsync("https://api.github.com/repos/Sefflex/gametranslator/releases/latest"));
+                await http.GetStringAsync("https://api.github.com/repos/Shuaiv2/altyazi-koprusu/releases/latest"));
             var tag = document.RootElement.GetProperty("tag_name").GetString()?.TrimStart('v');
             return tag is not null && AppVersion.IsNewer(tag, AppVersion.Current(typeof(Updater).Assembly)) ? tag : null;
         }

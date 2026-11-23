@@ -616,7 +616,8 @@ public static class WindowCaptureService
                     var sb = new StringBuilder(256);
                     GetWindowText(hWnd, sb, 256);
                     var title = sb.ToString().Trim();
-                    if (title.Contains("GameTranslator", StringComparison.OrdinalIgnoreCase) ||
+                    if (title.Contains("Ludora", StringComparison.OrdinalIgnoreCase) ||
+                        title.Contains("GameTranslator", StringComparison.OrdinalIgnoreCase) ||
                         title.Equals("Program Manager", StringComparison.OrdinalIgnoreCase) ||
                         title.Equals("Settings", StringComparison.OrdinalIgnoreCase))
                     {

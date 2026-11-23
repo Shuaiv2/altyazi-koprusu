@@ -49,7 +49,7 @@ internal static class StartupGuard
     /// </summary>
     public static IReadOnlyList<string> MissingFiles(string folder)
     {
-        var deps = Path.Combine(folder, "GameTranslator.deps.json");
+        var deps = Path.Combine(folder, "Ludora.deps.json");
         if (!File.Exists(deps)) return [];
         try
         {
@@ -72,20 +72,20 @@ internal static class StartupGuard
     {
         var list = string.Join("\n", files.Take(8).Select(f => "  • " + f)) + (files.Count > 8 ? "\n  • …" : "");
         return Turkish
-            ? $"Altyazı Köprüsü açılamadı: program klasöründe şu dosyalar yok:\n\n{list}\n\n" +
+            ? $"Ludora açılamadı: program klasöründe şu dosyalar yok:\n\n{list}\n\n" +
               "Bunun en sık nedeni antivirüs programının dosyayı karantinaya almasıdır. Windows Güvenliği › Virüs ve tehdit " +
-              "koruması › Koruma geçmişi'nden dosyayı geri yükleyin ya da GameTranslator-windows-x64.zip'i yeniden indirip " +
+              "koruması › Koruma geçmişi'nden dosyayı geri yükleyin ya da Ludora-windows-x64.zip'i yeniden indirip " +
               "\"Tümünü ayıkla\" ile bir klasöre çıkarın. Programı zip'in içinden çalıştırmayın."
-            : $"Altyazı Köprüsü could not start: these files are missing from its folder:\n\n{list}\n\n" +
+            : $"Ludora could not start: these files are missing from its folder:\n\n{list}\n\n" +
               "This usually means an antivirus moved them to quarantine. Restore them from Windows Security › Virus & threat " +
-              "protection › Protection history, or download GameTranslator-windows-x64.zip again and use \"Extract all\". " +
+              "protection › Protection history, or download Ludora-windows-x64.zip again and use \"Extract all\". " +
               "Do not run the app from inside the zip.";
     }
 
     public static string ErrorMessage(Exception error) =>
         (Turkish
-            ? "Altyazı Köprüsü beklenmeyen bir hatayla karşılaştı:\n\n"
-            : "Altyazı Köprüsü ran into an unexpected error:\n\n") +
+            ? "Ludora beklenmeyen bir hatayla karşılaştı:\n\n"
+            : "Ludora ran into an unexpected error:\n\n") +
         $"{error.GetType().Name}: {error.Message}\n\n" +
         (Turkish
             ? $"Ayrıntılar {LogPath} dosyasında. Sorunu bu dosyayla birlikte GitHub'daki Issues sayfasından bildirebilirsiniz."
@@ -97,7 +97,7 @@ internal static class StartupGuard
         Log(message, error);
         if (renderFolder is null)
         {
-            MessageBox.Show(message, "Altyazı Köprüsü", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(message, "Ludora", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         else
         {
@@ -116,7 +116,7 @@ internal static class StartupGuard
         app.DispatcherUnhandledException += (_, e) =>
         {
             Log("DispatcherUnhandledException", e.Exception);
-            MessageBox.Show(ErrorMessage(e.Exception), "Altyazı Köprüsü", MessageBoxButton.OK, MessageBoxImage.Error);
+            MessageBox.Show(ErrorMessage(e.Exception), "Ludora", MessageBoxButton.OK, MessageBoxImage.Error);
             e.Handled = true;
         };
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>

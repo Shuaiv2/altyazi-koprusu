@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+using GameTranslator.App.Theme;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -60,7 +61,7 @@ public sealed class RegionPicker : UserControl
         border.SetResourceReference(Border.BackgroundProperty, "backgroundBrush");
         panel.Children.Add(border);
 
-        var reset = new Button { Content = Localizer.Current["Reset area"], Margin = new Thickness(0, 12, 0, 0) };
+        var reset = new Button { Content = BrandedText.Current["Reset area"], Margin = new Thickness(0, 12, 0, 0) };
         reset.Click += (_, _) => Region = DefaultRegion;
         panel.Children.Add(reset);
         Content = panel;
@@ -106,7 +107,7 @@ public sealed class RegionPicker : UserControl
             {
                 preview.Children.Add(new TextBlock
                 {
-                    Text = Localizer.Current["The game picture appears here once translating starts."],
+                    Text = BrandedText.Current["The game picture appears here once translating starts."],
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                     TextAlignment = TextAlignment.Center,

@@ -1,9 +1,9 @@
-#define MyAppName "GameTranslator"
+#define MyAppName "Ludora"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "GameTranslator"
-#define MyAppURL "https://github.com/gametranslator/gametranslator"
-#define MyAppExeName "GameTranslator.exe"
-#define MySourceDir "C:\GameTranslator"
+#define MyAppPublisher "Ludora"
+#define MyAppURL "https://github.com/Shuaiv2/altyazi-koprusu"
+#define MyAppExeName "Ludora.exe"
+#define MySourceDir "C:\Ludora"
 
 [Setup]
 AppId={{C46A2B3D-88F4-47B2-BF1A-76902EA820B1}}
@@ -15,9 +15,9 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={localappdata}\Programs\{#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=C:\Users\mehme\OneDrive\Desktop\GameTranslator-Release-v1.0.0
-OutputBaseFilename=GameTranslator-Setup-v1.0.0
-SetupIconFile=C:\Users\mehme\OneDrive\Belgeler\gametranslator\windows\src\GameTranslator.App\Assets\GameTranslator.ico
+OutputDir=C:\Users\mehme\OneDrive\Desktop\Ludora-Release-v1.0.0
+OutputBaseFilename=Ludora-Setup-v1.0.0
+SetupIconFile=C:\Users\mehme\OneDrive\Belgeler\gametranslator\windows\src\GameTranslator.App\Assets\AltyaziKoprusu.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64
 SolidCompression=yes

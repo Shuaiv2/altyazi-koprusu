@@ -62,6 +62,10 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable, ITvLayo
     private IStreamSession? session;
     private IKeeper? keeper;
     private SubtitlePipeline? pipeline;
+    /// <summary>Ekran metni geçişi (görev hedefi, bilgi kutusu, bildirim, açıklama, telefon) ve onun ayrı yazı okuyucusu.</summary>
+    private readonly ScreenPass screenPass;
+    private ITextReader? screenReader;
+    private string? screenReaderLanguage;
     /// <summary>Hattın yazı okuyucusu; ek bölgelerin tek seferlik okuması da bunu kullanır.</summary>
     private ITextReader? activeReader;
     private int extraBusy;
@@ -99,10 +103,34 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable, ITvLayo
         server = new SubtitleServer(DefaultServerPort, layoutStorePath: services.LayoutStoreFile);
         server.ClientsChanged += OnClientsChanged;
         server.TvStatusChanged += OnTvLayoutStatusChanged;
+        screenPass = new ScreenPass(new ScreenPassHooks
+        {
+            Reader = ScreenReader,
+            Translator = MakeTranslator,
+            Enabled = kind => settings.ScreenKindEnabled(kind),
+            Send = (region, shown, ms) =>
+            {
+                server.SendScreen(region, shown, ms);
+                post(() => ScreenItemsShown?.Invoke(region, shown, ms));
+            },
+            Clear = region =>
+            {
+                server.ClearScreen(region);
+                post(() => ScreenItemsCleared?.Invoke(region));
+            },
+            // Menü, harita ya da telefondayken altyazı hattı susar ve bir kez temizlenir.
+            SubtitleSuppressed = suppressed =>
+            {
+                if (!suppressed) return;
+                pipeline?.Reset();
+                server.Clear();
+                post(() => SubtitlesCleared?.Invoke());
+            },
+            Log = SubtitleLog.Write,
+        });
         _ = Task.Run(async () =>
         {
             try { await StartServerAsync(); } catch { }
-            try { await CommunityPatchManager.Shared.UpdateFromRemoteRepoAsync(); } catch { }
         });
         StartPool();
     }
@@ -744,6 +772,24 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable, ITvLayo
     /// <summary>Altyazılar temizlendiğinde masaüstü overlay'i kapatılsın diye tetiklenir.</summary>
     public event Action? SubtitlesCleared;
 
+    /// <summary>Ekran metni çevirisi (bölge adı, öğeler, süre ms): bilgisayar katmanı TV'dekiyle aynı kartları çizer.</summary>
+    public event Action<string, IReadOnlyList<ScreenItem>, int>? ScreenItemsShown;
+
+    /// <summary>Ekran metni bölgesi boşaldı (bölge adı).</summary>
+    public event Action<string>? ScreenItemsCleared;
+
+    /// <summary>Ekran metni geçişinin yazı okuyucusu: altyazı okuyucusundan ayrı örnek (eşzamanlı çağrı olmasın); dil değişince yenilenir.</summary>
+    private ITextReader? ScreenReader()
+    {
+        var language = settings.SourceLanguage;
+        if (screenReader is null || screenReaderLanguage != language)
+        {
+            screenReader = services.MakeReader(language);
+            screenReaderLanguage = language;
+        }
+        return screenReader;
+    }
+
     /// <summary>Çeviri bilgisayarda da gösterilecekse (metin, kalma süresi ms) ile çağrılır.</summary>
     public event Action<string, int>? PcResultReady;
 
@@ -1016,6 +1062,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable, ITvLayo
         keeper = null;
         pipeline?.Reset();
         pipeline = null;
+        screenPass.Reset();
         // Yeni "Başlat" eski oturumdan kalan (belki takılmış) okumayı beklemeden temiz başlar.
         frameGate.Reset();
         activeReader = null;
@@ -1138,6 +1185,7 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable, ITvLayo
         }
         // (Önce cihaz üstü çeviri gösterip Gemini'ninkini sonra yerine koyma denendi: ekrandaki yazının değişmesi
         // kullanıcıya göre mantıklı değildi; Gemini seçiliyse çeviri yine doğrudan Gemini'den gelir. Hattın Upgrader'ı kaldı.)
+        screenPass.Invalidate();
         var built = new SubtitlePipeline(reader, new ContinuationTranslator(MakeTranslator(), looksMisread: text => SubtitlePipeline.ExtraMisreadCheck?.Invoke(text) ?? false)
         {
             Phrasebook = phrasebook,
@@ -1165,9 +1213,11 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable, ITvLayo
         // Şeride düşen arayüz yazısı (envanter çubuğu, savaş günlüğü) kısa sürede aynen yinelenir ve cümle gibi
         // bitmez; üç kez çevrildikten sonra bir süre okunmaz.
         var repeats = new RepeatedText();
-        built.LineFilter = (read, area) => WithoutGarbageLines(repeats.Without(settings.AutoRegion
+        // Ardından diyalog denetimi: telefon/bildirim kartı içindeki, kesik önizleme ve ortalanmamış satırlar elenir;
+        // kırpma okuması tam kare okumasıyla çapraz doğrulanır (ScreenPass.GateSubtitle).
+        built.LineFilter = (read, area) => screenPass.GateSubtitle(WithoutGarbageLines(repeats.Without(settings.AutoRegion
             ? autoBand is { } band ? SubtitleFinder.Grow(read, area, (band.Item1, band.Item2)) : WithoutOffCenterLines(read, area)
-            : read));
+            : read)), area, settings.SubtitleOnly);
         built.PairShown += (source, _) =>
         {
             if (repeats.Note(source) is { } blocked) SubtitleLog.Write($"arayüz yazısı: {SubtitleLog.Excerpt(blocked)} yineleniyor, artık çevrilmeyecek");
@@ -1460,6 +1510,10 @@ public sealed class AppController : INotifyPropertyChanged, IDisposable, ITvLayo
         post(() => LastFrame = frame);
         // Duraklatıldıysa kare yalnız ek bölgeler ve serbest alan için saklanır; altyazı okunmaz.
         if (subtitlesPaused) return;
+        // Ekran metni geçişi (tam kare, aralıklı, arka planda); hata altyazı hattını etkilemez.
+        try { screenPass.Feed(frame); } catch { }
+        // Ekran menü/harita/telefondayken altyazı hattı susar (menü yazıları altyazı diye çevrilmesin).
+        if (screenPass.SubtitlesSuppressed) return;
         TryFindSubtitles(frame);
         // Önceki kare hâlâ işleniyorsa bu kare atlanır; okuma kareleri biriktirmez.
         var current = pipeline;

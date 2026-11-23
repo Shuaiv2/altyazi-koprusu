@@ -3,6 +3,7 @@
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media.Animation;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
@@ -54,6 +55,7 @@ public sealed class DesktopSubtitleOverlay : Window
     private static ScreenRect? _monitor;
     private static OverlayLayoutSettings? _layout;
     private static string? _lastText;
+    private static ScreenRect? _gameRect; // oyunun (yakalanan pencere/monitör) ekran pikseli dikdörtgeni; ekran kartları buna oturur
 
     /// <summary>Düzenin saklandığı dosya (%LOCALAPPDATA%\AltyaziKoprusu\overlay-layout.json).</summary>
     public static OverlayLayoutStore Store { get; set; } = new(OverlayLayoutStore.DefaultPath());
@@ -86,7 +88,11 @@ public sealed class DesktopSubtitleOverlay : Window
         set
         {
             _enabled = value;
-            if (!value) Clear();
+            if (!value)
+            {
+                Clear();
+                ClearScreen(null);
+            }
         }
     }
 
@@ -117,7 +123,7 @@ public sealed class DesktopSubtitleOverlay : Window
     public static bool Toggle()
     {
         IsOverlayEnabled = !_enabled;
-        Notice(_enabled ? "Altyazı Köprüsü: altyazı katmanı açık (Ctrl+Shift+O ile kapat)" : "");
+        Notice(_enabled ? "Ludora: altyazı katmanı açık (Ctrl+Shift+O ile kapat)" : "");
         return _enabled;
     }
 
@@ -156,6 +162,47 @@ public sealed class DesktopSubtitleOverlay : Window
         });
     }
 
+    /// <summary>
+    /// Yakalanan oyun alanının (pencere istemci alanı ya da monitör) sanal masaüstü pikseli. Ekran kartlarının
+    /// normalize kutuları buraya oturur; verilmezse monitörün tamamı kullanılır.
+    /// </summary>
+    public static void SetGameRect(ScreenRect? rect)
+    {
+        if (_gameRect == rect) return;
+        _gameRect = rect;
+        if (Application.Current == null) return;
+        Application.Current.Dispatcher.BeginInvoke(() => _instance?.RenderScreen());
+    }
+
+    /// <summary>
+    /// Ekran metni çevirisini (TV'deki <c>screen</c> olayı) katmanda çizer: "over" kartları İngilizce öğeyi örter, "beside"
+    /// telefonun yanında sohbet paneli olur. Aynı bölgenin öncekileri değişir; süre dolunca ya da bölge boşalınca kalkar.
+    /// </summary>
+    public static void ShowScreen(string region, IReadOnlyList<ScreenItem> items, int durationMs)
+    {
+        if (!_enabled || Application.Current == null) return;
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            try
+            {
+                _instance ??= new DesktopSubtitleOverlay();
+                _instance.ShowScreenRegion(region, items, durationMs);
+            }
+            catch { }
+        });
+    }
+
+    /// <summary>Bölgeyi temizler; <paramref name="region"/> null ise hepsini.</summary>
+    public static void ClearScreen(string? region)
+    {
+        if (Application.Current == null) return;
+        Application.Current.Dispatcher.BeginInvoke(() =>
+        {
+            try { _instance?.HideScreenRegion(region); }
+            catch { }
+        });
+    }
+
     public static void Clear()
     {
         if (Application.Current == null) return;
@@ -173,6 +220,16 @@ public sealed class DesktopSubtitleOverlay : Window
     private readonly DispatcherTimer _timer = new();
     private string _shown = "";
     private bool _rendering;
+    private readonly Canvas _screenRoot = new() { ClipToBounds = false, IsHitTestVisible = false };
+    private readonly Canvas _screenLayer = new() { ClipToBounds = true };
+    private readonly Dictionary<string, ScreenRegion> _regions = new(StringComparer.Ordinal);
+
+    private sealed class ScreenRegion(Canvas host, DispatcherTimer timer, IReadOnlyList<ScreenItem> items)
+    {
+        public Canvas Host { get; } = host;
+        public DispatcherTimer Timer { get; } = timer;
+        public IReadOnlyList<ScreenItem> Items { get; } = items;
+    }
 
     private DesktopSubtitleOverlay()
     {
@@ -193,14 +250,20 @@ public sealed class DesktopSubtitleOverlay : Window
         _textBg.Child = _text;
         _box.Child = _textBg;
         _page.Children.Add(_box);
-        Content = new Grid { Background = Brushes.Transparent, Children = { _page } };
+        _screenRoot.Children.Add(_screenLayer);
+        Content = new Grid { Background = Brushes.Transparent, Children = { _page, _screenRoot } };
         Visibility = Visibility.Collapsed;
 
         _timer.Tick += (_, _) => HideText();
 
         SourceInitialized += (_, _) => ApplyStyles();
         DpiChanged += (_, _) => Dispatcher.BeginInvoke(ApplyMonitor, DispatcherPriority.Background);
-        SizeChanged += (_, _) => { if (Visibility == Visibility.Visible) Render(); };
+        SizeChanged += (_, _) =>
+        {
+            if (Visibility != Visibility.Visible) return;
+            Render();
+            RenderScreen();
+        };
         // Tutamak şimdi oluşsun ki izin/konum ilk gösterimden önce uygulanabilsin.
         new WindowInteropHelper(this).EnsureHandle();
         ApplyMonitor();
@@ -230,7 +293,11 @@ public sealed class DesktopSubtitleOverlay : Window
             if (hwnd == IntPtr.Zero) return;
             var m = OverlayLayoutMath.OverlayRect(CurrentMonitor);
             SetWindowPos(hwnd, HWND_TOPMOST, m.Left, m.Top, m.Width, m.Height, SWP_NOACTIVATE);
-            if (Visibility == Visibility.Visible) Render();
+            if (Visibility == Visibility.Visible)
+            {
+                Render();
+                RenderScreen();
+            }
         }
         catch { }
     }
@@ -238,13 +305,10 @@ public sealed class DesktopSubtitleOverlay : Window
     private void ShowText(string text, int durationMs)
     {
         _shown = text;
+        _box.Visibility = Visibility.Visible;
         ApplyStyles();
         Render();
-        if (Visibility != Visibility.Visible)
-        {
-            Visibility = Visibility.Visible;
-            ApplyMonitor();
-        }
+        EnsureVisible();
         _timer.Stop();
         _timer.Interval = TimeSpan.FromMilliseconds(Math.Max(2500, durationMs));
         _timer.Start();
@@ -253,7 +317,215 @@ public sealed class DesktopSubtitleOverlay : Window
     private void HideText()
     {
         _timer.Stop();
-        Visibility = Visibility.Collapsed;
+        _box.Visibility = Visibility.Collapsed;
+        CollapseIfIdle();
+    }
+
+    private void EnsureVisible()
+    {
+        if (Visibility == Visibility.Visible) return;
+        Visibility = Visibility.Visible;
+        ApplyMonitor();
+    }
+
+    /// <summary>Altyazı da ekran kartı da yoksa pencere tamamen gizlenir.</summary>
+    private void CollapseIfIdle()
+    {
+        if (_box.Visibility != Visibility.Visible && _regions.Count == 0) Visibility = Visibility.Collapsed;
+    }
+
+    // --- Ekran metni kartları (tv/webos/app.js showScreen / showOverItem / showBesideItem'in karşılığı) ---
+
+    private void ShowScreenRegion(string region, IReadOnlyList<ScreenItem> items, int durationMs)
+    {
+        HideScreenRegion(region, collapse: false);
+        var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(Math.Max(2500, durationMs)) };
+        var host = new Canvas();
+        var state = new ScreenRegion(host, timer, items);
+        _regions[region] = state;
+        _screenLayer.Children.Add(host);
+        timer.Tick += (_, _) => HideScreenRegion(region);
+        timer.Start();
+        ApplyStyles();
+        EnsureVisible();
+        PlaceScreenLayer(out var pageWidth, out var pageHeight);
+        FillRegion(state, pageWidth, pageHeight, animate: true);
+    }
+
+    private void HideScreenRegion(string? region, bool collapse = true)
+    {
+        var names = region is null ? _regions.Keys.ToList() : [region];
+        foreach (var name in names)
+        {
+            if (!_regions.Remove(name, out var state)) continue;
+            state.Timer.Stop();
+            _screenLayer.Children.Remove(state.Host);
+        }
+        if (collapse) CollapseIfIdle();
+    }
+
+    /// <summary>
+    /// Kartların sayfasını oyunun dikdörtgenine oturtur: sayfa 1920 geniş (TV ile aynı birim), yüksekliği oyunun en-boy
+    /// oranından gelir; DIP ölçeğiyle küçültülür. Oyun dikdörtgeni verilmemişse monitörün tamamı.
+    /// </summary>
+    private void PlaceScreenLayer(out double pageWidth, out double pageHeight)
+    {
+        var monitor = CurrentMonitor;
+        var game = _gameRect ?? monitor;
+        var dipPerPixel = ActualWidth > 0 && monitor.Width > 0 ? ActualWidth / monitor.Width : 1;
+        double gw = Math.Max(1, game.Width * dipPerPixel), gh = Math.Max(1, game.Height * dipPerPixel);
+        var scale = gw / OverlayLayoutSettings.PageWidth;
+        pageWidth = OverlayLayoutSettings.PageWidth;
+        pageHeight = gh / scale;
+        _screenLayer.Width = pageWidth;
+        _screenLayer.Height = pageHeight;
+        _screenLayer.RenderTransform = new ScaleTransform(scale, scale);
+        Canvas.SetLeft(_screenLayer, (game.Left - monitor.Left) * dipPerPixel);
+        Canvas.SetTop(_screenLayer, (game.Top - monitor.Top) * dipPerPixel);
+    }
+
+    /// <summary>Pencere/oyun dikdörtgeni değişince açık bölgeler yeniden yerleştirilir.</summary>
+    private void RenderScreen()
+    {
+        if (_regions.Count == 0) return;
+        PlaceScreenLayer(out var pageWidth, out var pageHeight);
+        foreach (var state in _regions.Values) FillRegion(state, pageWidth, pageHeight, animate: false);
+    }
+
+    private void FillRegion(ScreenRegion state, double vw, double vh, bool animate)
+    {
+        state.Host.Children.Clear();
+        var s = Layout.Sanitized();
+        var margin = Math.Min(s.Margin, Math.Floor(vw / 2) - 1);
+        var placed = new List<(FrameworkElement Element, CardRect Rect)>();
+        foreach (var item in state.Items)
+        {
+            if (item.Box.Right <= item.Box.Left || item.Box.Bottom <= item.Box.Top) continue;
+            FrameworkElement? element = null;
+            CardRect rect = default;
+            if (item.Placement == "beside" && ScreenCards.Messages(item).Count > 0)
+            {
+                (element, rect) = BuildChatPanel(item, vw, vh, margin);
+                state.Host.Children.Add(element);
+                Canvas.SetLeft(element, rect.Left);
+                Canvas.SetTop(element, rect.Top);
+            }
+            else if (item.Placement == "over" && item.Text.Length > 0)
+            {
+                (element, rect) = BuildOverCard(item, vw, vh, margin, s);
+                state.Host.Children.Add(element);
+                Canvas.SetLeft(element, rect.Left);
+                Canvas.SetTop(element, rect.Top);
+                placed.Add((element, rect));
+            }
+            if (element is null) continue;
+            if (animate) element.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150)));
+        }
+        // Aynı bölgedeki kartlar (birden çok bildirim) üst üste binmesin: sırayla aşağı itilir.
+        if (placed.Count > 1)
+        {
+            var stacked = ScreenCards.Stack(placed.Select(p => p.Rect).ToList(), ScreenCards.StackGap);
+            for (var i = 0; i < placed.Count; i++) Canvas.SetTop(placed[i].Element, stacked[i].Top);
+        }
+    }
+
+    private static SolidColorBrush Fill(byte r, byte g, byte b, double alpha) =>
+        new(Color.FromArgb((byte)Math.Round(Math.Clamp(alpha, 0, 1) * 255), r, g, b));
+
+    private static readonly FontFamily CardFont = new("Segoe UI");
+
+    private static TextBlock CardText(string text, double size, FontWeight weight, Brush foreground, double lineHeightFactor = 1.25) => new()
+    {
+        Text = text, FontFamily = CardFont, FontSize = size, FontWeight = weight, Foreground = foreground,
+        TextWrapping = TextWrapping.Wrap, LineHeight = size * lineHeightFactor, LineStackingStrategy = LineStackingStrategy.BlockLineHeight,
+    };
+
+    /// <summary>"over": Türkçe kart İngilizce öğeyi tam örter (temalı, neredeyse opak zemin); sığmazsa büyür, sonra yazı küçülür (en az 18).</summary>
+    private static (FrameworkElement, CardRect) BuildOverCard(ScreenItem item, double vw, double vh, double margin, OverlayLayoutSettings s)
+    {
+        var style = ScreenCards.OverStyle(item.Theme, s.BgOpacity);
+        var parts = ScreenCards.Parts(item);
+        var foreground = new SolidColorBrush(Color.FromRgb(style.Text.R, style.Text.G, style.Text.B));
+        var stack = new StackPanel();
+        var card = new Border
+        {
+            CornerRadius = new CornerRadius(12),
+            Background = Fill(style.Background.R, style.Background.G, style.Background.B, style.Alpha),
+            Child = stack,
+            Effect = new DropShadowEffect { Color = Colors.Black, Direction = 270, ShadowDepth = 2, BlurRadius = 10, Opacity = style.Light ? 0.28 : 0.45 },
+        };
+        var size = ScreenCards.OverFontSize(item.LineHeight, vh, s.FontSize);
+        var boxH = Math.Max(0, (item.Box.Bottom - item.Box.Top) * vh);
+        var rect = ScreenCards.OverRect(item.Box, vw, vh, margin, 0);
+        for (var guard = 0; guard < 60; guard++)
+        {
+            stack.Children.Clear();
+            if (parts.Speaker.Length > 0) stack.Children.Add(CardText(parts.Speaker, size * 1.08, FontWeights.Bold, foreground));
+            for (var i = 0; i < parts.Segments.Count; i++)
+                stack.Children.Add(CardText(parts.Segments[i], size, i == 0 && parts.TitleBold ? FontWeights.Bold : FontWeights.SemiBold, foreground));
+            card.Padding = new Thickness(size * 0.7, size * 0.4, size * 0.7, size * 0.4);
+            card.Width = rect.Width;
+            card.MinHeight = rect.Height;
+            card.Measure(new Size(rect.Width, double.PositiveInfinity));
+            var content = card.DesiredSize.Height;
+            rect = ScreenCards.OverRect(item.Box, vw, vh, margin, content);
+            var limit = Math.Max(rect.Height, ScreenCards.OverMaxGrow(boxH, rect.MaxHeight));
+            if (!ScreenCards.ShouldShrink(content, limit, size)) break;
+            size -= 2;
+        }
+        return (card, rect);
+    }
+
+    /// <summary>"beside": telefonun yanında sohbet paneli (başlıkta kişi adı; "them" solda, "me" sağda mavi). Taşarsa en eski mesajlar atılır.</summary>
+    private static (FrameworkElement, CardRect) BuildChatPanel(ScreenItem item, double vw, double vh, double margin)
+    {
+        var (rect, _) = ScreenCards.BesideRect(item.Box, vw, vh, margin);
+        var fontSize = ScreenCards.BesideFontSize(vh);
+        var white = Brushes.White;
+        const double padX = 12, padY = 10;
+        var stack = new StackPanel();
+        var panel = new Border
+        {
+            Width = rect.Width, MaxHeight = rect.MaxHeight, CornerRadius = new CornerRadius(14), ClipToBounds = true,
+            Padding = new Thickness(padX, padY, padX, padY), Background = Fill(12, 12, 16, 0.78), Child = stack,
+            Effect = new DropShadowEffect { Color = Colors.Black, Direction = 270, ShadowDepth = 4, BlurRadius = 18, Opacity = 0.45 },
+        };
+        double headHeight = 0;
+        var who = item.Speaker?.Trim() ?? "";
+        if (who.Length > 0)
+        {
+            var head = CardText(who, fontSize * 0.85, FontWeights.Bold, Fill(255, 255, 255, 0.7));
+            head.Margin = new Thickness(0, 0, 0, 6);
+            head.Measure(new Size(rect.Width - (2 * padX), double.PositiveInfinity));
+            headHeight = head.DesiredSize.Height + 6;
+            stack.Children.Add(head);
+        }
+        var bubbles = new List<Border>();
+        var heights = new List<double>();
+        var list = new StackPanel();
+        foreach (var message in ScreenCards.Messages(item))
+        {
+            var me = message.FromMe;
+            var bubble = new Border
+            {
+                CornerRadius = new CornerRadius(14), Padding = new Thickness(10, 6, 10, 6),
+                MaxWidth = 0.85 * (rect.Width - (2 * padX)),
+                HorizontalAlignment = me ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+                Background = me ? Fill(10, 132, 255, 0.85) : Fill(255, 255, 255, 0.14),
+                Child = CardText(message.Text, fontSize, FontWeights.Normal, white),
+            };
+            bubble.Measure(new Size(rect.Width - (2 * padX), double.PositiveInfinity));
+            heights.Add(bubble.DesiredSize.Height);
+            bubbles.Add(bubble);
+            list.Children.Add(bubble);
+        }
+        // Balonlar arası 6 px boşluk (son balonun alt boşluğu yok); yükseklikler boşluksuz ölçüldü.
+        for (var i = 0; i < bubbles.Count - 1; i++) bubbles[i].Margin = new Thickness(0, 0, 0, 6);
+        var available = rect.MaxHeight - (2 * padY) - headHeight;
+        var first = ScreenCards.BesideFirstVisible(heights, 6, available);
+        for (var i = 0; i < first; i++) bubbles[i].Visibility = Visibility.Collapsed;
+        stack.Children.Add(list);
+        return (panel, rect);
     }
 
     /// <summary>Kutuyu ve yazıyı düzene göre yerleştirir (GT_SUBLAYOUT.apply'ın karşılığı).</summary>

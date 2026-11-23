@@ -8,8 +8,8 @@ android {
         applicationId 'com.altyazikoprusu.tv'
         minSdk 24
         targetSdk 35
-        versionCode 108
-        versionName '1.6.0'
+        versionCode 111
+        versionName '1.7.2'
     }
     // Sürümde imza depo sırrından gelir; yoksa geliştirme anahtarıyla imzalanır.
     signingConfigs {

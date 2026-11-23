@@ -106,6 +106,36 @@ public enum GlyphNormalizer {
         return sub(plusSpacing, toks.joined(separator: " "), "$1 + ")
     }
 
+    private static let junkTokens: Set<String> = ["o", "O", "©", "®", "@", "•"]
+    private static let aFollowers: Set<String> = ["or", "and", "to", "for", "depending", "at", "in", "on", "by", "with", "of", "into", "from"]
+
+    /// Bilgi kutusu metninde kalan düğme simgesi artıkları ("stash a or", "bar o depending", "ATM IP,") temizlenir.
+    public static func stripIconRemnants(_ input: String) -> String {
+        var toks = input.split(whereSeparator: \.isWhitespace).map(String.init)
+        var i = 0
+        while i < toks.count {
+            let t = toks[i]
+            if junkTokens.contains(t) { toks.remove(at: i); continue }
+            if t == "a" {
+                if i == toks.count - 1 || aFollowers.contains(toks[i + 1].lowercased()) { toks.remove(at: i); continue }
+            }
+            i += 1
+        }
+        // Sondaki 1–2 büyük harfli belirteç: virgülle bitiyorsa ya da önünde tümü büyük harfli bir sözcük varsa (ATM IP)
+        if let last = toks.last, toks.count >= 2 {
+            let hasComma = last.hasSuffix(",")
+            let core = hasComma ? String(last.dropLast()) : last
+            let isCaps = (1...2).contains(core.count) && core.allSatisfy { $0.isLetter && $0.isUppercase && $0.isASCII }
+            let prev = toks[toks.count - 2]
+            let prevCaps = prev.count >= 2 && prev.allSatisfy { $0.isLetter && $0.isUppercase && $0.isASCII }
+            if isCaps, hasComma || prevCaps {
+                toks.removeLast()
+                if let l = toks.last, l.hasSuffix(",") { toks[toks.count - 1] = String(l.dropLast()) }
+            }
+        }
+        return toks.joined(separator: " ")
+    }
+
     /// Metindeki düğme belirteçleri sırayla (çeviri sonrası eksik/fazla denetimi için).
     public static func tokens(in s: String) -> [String] {
         var out: [String] = []
@@ -136,6 +166,28 @@ public enum InfoBox {
             if onlySymbols && !isPunct && !isOurGlyph { tokens.removeLast() }
         }
         return tokens.joined(separator: " ")
+    }
+
+    /// Satır başındaki tek karakterlik simge ("$", "i", "€", "©", "®", "ⓘ") atılır; ardından sözcük kalıyorsa.
+    public static func stripLeadingIcon(_ line: String) -> String {
+        let t = line.trimmingCharacters(in: .whitespaces)
+        let parts = t.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        guard parts.count == 2, parts[0].count == 1, ["$", "i", "€", "©", "®", "ⓘ", "£"].contains(String(parts[0])) else { return t }
+        return String(parts[1]).trimmingCharacters(in: .whitespaces)
+    }
+
+    private static let nameConnectors: Set<String> = ["of", "the", "and", "&", "de", "la", "el", "von", "van"]
+
+    /// Salt ad/etiket mi ("Key Lento Coffee Morning"): ≤5 sözcük, tümü Büyük Harfle başlar (bağlaçlar hariç), cümle noktalaması yok.
+    /// Küçük harfli fiil benzeri sözcük ("Get in your car", "Take Lucia to the community center") varsa ad değildir.
+    public static func isNameLabel(_ s: String) -> Bool {
+        let t = s.trimmingCharacters(in: .whitespaces)
+        guard !t.contains(where: { ".!?,;:…".contains($0) }) else { return false }
+        let words = t.split(whereSeparator: \.isWhitespace).map(String.init).filter { $0.contains(where: \.isLetter) }
+        guard (1...5).contains(words.count) else { return false }
+        return words.allSatisfy { w in
+            nameConnectors.contains(w.lowercased()) && w != words.first || w.first(where: \.isLetter)?.isUppercase == true
+        }
     }
 
     static func wordCount(_ s: String) -> Int { s.split(whereSeparator: \.isWhitespace).filter { $0.contains(where: \.isLetter) }.count }

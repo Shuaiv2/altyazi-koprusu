@@ -16,12 +16,16 @@ public class LocalizerTests
     }
 
     [Fact]
-    public void ProductNameIsAltyaziKoprusuEverywhere()
+    public void ProductNameIsLudoraEverywhere()
     {
-        Assert.Equal("Altyazı Köprüsü Hakkında", Localizer.ForLanguage("tr")["About GameTranslator"]);
-        Assert.Equal("About Altyazı Köprüsü", Localizer.ForLanguage("en")["About GameTranslator"]);
-        Assert.Equal("Altyazı Köprüsü'nü aç", Localizer.Brand("GameTranslator'ı aç", "tr"));
-        Assert.Equal("Altyazı Köprüsü'ne", Localizer.Brand("GameTranslator'a", "tr"));
+        Assert.Equal("Ludora Hakkında", Localizer.ForLanguage("tr")["About GameTranslator"]);
+        Assert.Equal("About Ludora", Localizer.ForLanguage("en")["About GameTranslator"]);
+        Assert.Equal("Ludora'yı aç", Localizer.Brand("GameTranslator'ı aç", "tr"));
+        Assert.Equal("Ludora'ya", Localizer.Brand("GameTranslator'a", "tr"));
+        Assert.Equal("Ludora'da", Localizer.Brand("GameTranslator'da", "tr"));
+        Assert.Equal("Ludora'dan", Localizer.Brand("GameTranslator'dan", "tr"));
+        Assert.Equal("Ludora'nın", Localizer.Brand("GameTranslator'ın", "tr"));
+        Assert.Equal("Ludora'yla", Localizer.Brand("GameTranslator'la", "tr"));
         // Dosya adları değişmez.
         Assert.Equal("GameTranslator-windows-x64.zip", Localizer.Brand("GameTranslator-windows-x64.zip", "tr"));
     }

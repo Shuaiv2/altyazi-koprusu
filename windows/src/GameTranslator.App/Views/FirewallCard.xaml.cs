@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+using GameTranslator.App.Theme;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -40,7 +41,7 @@ public partial class FirewallCard : UserControl
     private void Show()
     {
         if (controller is null) return;
-        var text = Localizer.Current;
+        var text = BrandedText.Current;
         var prompt = controller.FirewallPrompt;
         // Çeviri sürmüyorsa kart PS5 eşleştirmesi içindir.
         var running = controller.IsRunning;

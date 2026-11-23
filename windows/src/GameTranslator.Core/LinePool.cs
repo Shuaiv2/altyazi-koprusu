@@ -22,7 +22,7 @@ public sealed class LinePool : IDisposable
     /// <summary>Açık; ayarlarda kullanıcı kapatabilir (kapatınca kuyruk da silinir).</summary>
     public const bool EnabledByDefault = true;
     /// <summary>Sunucu adresi; denemede <c>COUCHSUBS_POOL_URL</c> ortam değişkeniyle değiştirilir.</summary>
-    public static readonly Uri DefaultEndpoint = new("https://couchsubs-pool.enmera.workers.dev/v1/lines");
+    public static readonly Uri DefaultEndpoint = new("https://pool.invalid/v1/lines");
     public const int BatchSize = 200;
     public const int MaxQueue = 5000;
     public const int MaxLength = 300;

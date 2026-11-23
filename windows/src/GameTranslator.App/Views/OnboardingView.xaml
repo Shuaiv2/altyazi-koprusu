@@ -112,8 +112,8 @@
                             <TextBlock Text="{x:Static c:Glyphs.Controller}" Style="{StaticResource GlyphText}" FontSize="20" HorizontalAlignment="Center" Foreground="{DynamicResource accentTextBrush}" />
                         </Border>
                         <StackPanel VerticalAlignment="Center" MaxWidth="500">
-                            <TextBlock Text="Altyazı Köprüsü'ne hoş geldin" FontWeight="Bold" FontSize="18" Foreground="{DynamicResource textPrimaryBrush}" />
-                            <TextBlock Text="PS5 oyunlarındaki İngilizce altyazıları ekrandan okur ve TV'nde anında Türkçe gösterir." TextWrapping="Wrap" FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,2,0,0" />
+                            <TextBlock Text="Ludora'ya hoş geldin" FontWeight="Bold" FontSize="18" Foreground="{DynamicResource textPrimaryBrush}" />
+                            <TextBlock Text="PS5 ve Xbox oyunlarındaki İngilizce altyazıları ekrandan okur ve TV'nde ya da bu bilgisayarda anında Türkçe gösterir." TextWrapping="Wrap" FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,2,0,0" />
                         </StackPanel>
                     </StackPanel>
 
@@ -128,8 +128,8 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="{x:Static c:Glyphs.Controller}" Style="{StaticResource GlyphText}" FontSize="18" Foreground="{DynamicResource accentTextBrush}" VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1">
-                                <TextBlock Text="PS5" FontWeight="SemiBold" FontSize="15" Foreground="White" />
-                                <TextBlock Text="Açık ve bu bilgisayarla aynı ağda olsun." FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" />
+                                <TextBlock Text="PS5 ya da Xbox" FontWeight="SemiBold" FontSize="15" Foreground="White" />
+                                <TextBlock Text="PS5 açık ve bu bilgisayarla aynı ağda olsun. Xbox'ı tarayıcıda (Remote Play) oynuyorsan PS5 gerekmez." FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" />
                             </StackPanel>
                         </Grid>
                     </Border>
@@ -158,7 +158,7 @@
                             </Grid.ColumnDefinitions>
                             <TextBlock Text="{x:Static c:Glyphs.People}" Style="{StaticResource GlyphText}" FontSize="18" Foreground="{DynamicResource accentTextBrush}" VerticalAlignment="Center" />
                             <StackPanel Grid.Column="1">
-                                <TextBlock Text="İkinci bir PSN hesabı (ücretsiz)" FontWeight="SemiBold" FontSize="15" Foreground="White" />
+                                <TextBlock Text="İkinci bir PSN hesabı (ücretsiz, yalnız PS5 için)" FontWeight="SemiBold" FontSize="15" Foreground="White" />
                                 <TextBlock Text="Bilgisayar bu hesapla bağlanır, böylece senin oyunun ve kumandan etkilenmez." FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" />
                             </StackPanel>
                         </Grid>
@@ -176,6 +176,21 @@
                             <TextBlock Text="İkinci hesapla giriş yap, sonra PS5'teki kodu gir. Bir kere yapılır." FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,2,0,0" />
                         </StackPanel>
                     </StackPanel>
+
+                        <!-- Alternatif: Xbox Remote Play / tarayıcıda oynayanlar için (PS5 gerekmez) -->
+                        <Border Background="#101726" BorderBrush="{DynamicResource accentBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,0,0,12">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Xbox mı kullanıyorsun?" FontWeight="SemiBold" FontSize="13" Foreground="White" />
+                                    <TextBlock Text="Xbox Remote Play (play.xbox.com/remoteplay) için PS5, PSN hesabı ve TV gerekmez. Altyazı bu bilgisayarda, tam ekran oyunun üstünde görünür." FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <Button Grid.Column="1" Content="Xbox'ı seç" Click="OnSkipPs5ForXbox" Style="{StaticResource PillButton}" VerticalAlignment="Center" Margin="10,0,0,0" />
+                            </Grid>
+                        </Border>
 
                     <!-- BİLGİ KARTI: TEK SEFERLİK KURULUM VE SESSİZ ARKA PLAN ÇALIŞMASI -->
                     <Border Background="#101726" BorderBrush="{DynamicResource hairlineBrush}" BorderThickness="1" CornerRadius="8" Padding="14,10" Margin="0,0,0,12">
@@ -278,21 +293,6 @@
 
                             <TextBlock x:Name="PairStatusText" Margin="0,6,0,0" FontSize="13" Foreground="{DynamicResource successBrush}" TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
 
-                            <!-- Alternatif: Xbox Remote Play / tarayıcıda oynayanlar için (PS5 gerekmez) -->
-                            <Border Background="#101726" BorderBrush="{DynamicResource accentBrush}" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,14,0,0">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel VerticalAlignment="Center">
-                                        <TextBlock Text="Xbox'ı tarayıcıda mı oynuyorsun?" FontWeight="SemiBold" FontSize="13" Foreground="White" />
-                                        <TextBlock Text="play.xbox.com/remoteplay için PS5 ve TV gerekmez; altyazı bu bilgisayarda oyunun üstünde görünür." FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" />
-                                    </StackPanel>
-                                    <Button Grid.Column="1" Content="Bunu seç " Click="OnSkipPs5ForXbox" Style="{StaticResource PillButton}" VerticalAlignment="Center" Margin="10,0,0,0" />
-                                </Grid>
-                            </Border>
-
                             <!-- Alternatif: Yakalama Kartı (Capture Card) / OBS Kullanıcıları İçin -->
                             <Border Background="#101726" BorderBrush="#1E293B" BorderThickness="1" CornerRadius="8" Padding="12,10" Margin="0,14,0,0">
                                 <Grid>
@@ -336,7 +336,7 @@
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
                                         <TextBlock Text="Bu bilgisayarda (tam ekran oyunun üstünde)" FontWeight="Bold" FontSize="13" Foreground="White" TextWrapping="Wrap" />
-                                        <TextBlock Text="Xbox Remote Play / tarayıcı veya bilgisayar oyunları için — TV gerekmez" FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" />
+                                        <TextBlock Text="Xbox kullanıcıları için: Xbox Remote Play (tarayıcı) veya bilgisayar oyunları — TV gerekmez" FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" />
                                     </StackPanel>
                                     <Border x:Name="TvBadgeOverlay" Grid.Column="2" Background="{DynamicResource successSoftBrush}" CornerRadius="10" Padding="8,2" VerticalAlignment="Center" Visibility="Collapsed">
                                         <TextBlock Text="Seçildi" FontSize="11" FontWeight="Bold" Foreground="{DynamicResource successBrush}" />
@@ -448,7 +448,7 @@
                             <!-- Panel: Samsung Tizen TV -->
                             <StackPanel x:Name="TvDetailSamsung" Visibility="Collapsed">
                                 <TextBlock Text="Samsung TV" FontWeight="Bold" FontSize="13" Foreground="{DynamicResource accentTextBrush}" Margin="0,0,0,4" />
-                                <TextBlock Text="TV'nin adresini yaz, sonra TV'de Altyazı Köprüsü'nü aç:" FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,0,0,8" />
+                                <TextBlock Text="TV'nin adresini yaz, sonra TV'de Ludora'yı aç:" FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,0,0,8" />
                                 <Grid Margin="0,0,0,8">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*" />
@@ -541,7 +541,7 @@
                             <TextBlock Text="Nasıl kullanılır?" FontWeight="Bold" FontSize="15" Foreground="White" Margin="0,0,0,10" />
                             <TextBlock Text="1. Oyunda altyazıları aç." FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,0,0,6" />
                             <TextBlock Text="2. Ana ekrandaki büyük düğmeyle çeviriyi başlat." FontSize="13" Foreground="{DynamicResource textSecondaryBrush}" Margin="0,0,0,6" />
-                            <TextBlock Text="3. TV'de Altyazı Köprüsü'nü aç; çeviri oyunun üstünde görünür." FontSize="13" Foreground="{DynamicResource successBrush}" FontWeight="SemiBold" />
+                            <TextBlock Text="3. TV'de Ludora'yı aç; çeviri oyunun üstünde görünür." FontSize="13" Foreground="{DynamicResource successBrush}" FontWeight="SemiBold" />
                         </StackPanel>
                     </Border>
 

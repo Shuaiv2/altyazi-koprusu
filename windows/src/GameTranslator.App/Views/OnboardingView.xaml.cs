@@ -606,7 +606,7 @@ public partial class OnboardingView : UserControl
             await controller.PairAsync(new LgTv("Samsung Smart TV", host, TvBrand.Samsung));
         }
         catch { }
-        TvStatusFeedback.Text = $"✓ Samsung TV kaydedildi ({host}). TV'de Altyazı Köprüsü'nü aç.";
+        TvStatusFeedback.Text = $"✓ Samsung TV kaydedildi ({host}). TV'de Ludora'yı aç.";
         TvStatusFeedback.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
     }
 
@@ -621,7 +621,7 @@ public partial class OnboardingView : UserControl
             await controller.PairAsync(new LgTv("LG webOS TV", host, TvBrand.Lg));
         }
         catch { }
-        TvStatusFeedback.Text = $"✓ LG TV kaydedildi ({host}). TV'de Altyazı Köprüsü'nü aç.";
+        TvStatusFeedback.Text = $"✓ LG TV kaydedildi ({host}). TV'de Ludora'yı aç.";
         TvStatusFeedback.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
     }
 
@@ -705,7 +705,7 @@ public partial class OnboardingView : UserControl
             });
 
             AndroidInstallStatus.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
-            AndroidInstallStatus.Text = $"✓ Başarılı! Altyazı Köprüsü v{version} TV'ye kuruldu ve açıldı.";
+            AndroidInstallStatus.Text = $"✓ Başarılı! Ludora v{version} TV'ye kuruldu ve açıldı.";
             TvStatusFeedback.Text = $"✓ Android TV ({host}) bağlandı ve uygulama hazır.";
             TvStatusFeedback.Foreground = new SolidColorBrush(Color.FromRgb(16, 185, 129));
         }
@@ -741,7 +741,7 @@ public partial class OnboardingView : UserControl
         if (File.Exists(path))
             Process.Start("explorer.exe", $"/select,\"{path}\"");
         else
-            Process.Start(new ProcessStartInfo("https://github.com/Sefflex/GameTranslator/releases") { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/altyazi-koprusu/releases") { UseShellExecute = true });
     }
 
     private void OnOpenLgIpk(object sender, RoutedEventArgs e)
@@ -750,7 +750,7 @@ public partial class OnboardingView : UserControl
         if (File.Exists(path))
             Process.Start("explorer.exe", $"/select,\"{path}\"");
         else
-            Process.Start(new ProcessStartInfo("https://github.com/Sefflex/GameTranslator/releases") { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/altyazi-koprusu/releases") { UseShellExecute = true });
     }
 
     private void OnOpenAndroidApk(object sender, RoutedEventArgs e)
@@ -759,12 +759,12 @@ public partial class OnboardingView : UserControl
         if (File.Exists(path))
             Process.Start("explorer.exe", $"/select,\"{path}\"");
         else
-            Process.Start(new ProcessStartInfo("https://github.com/Sefflex/GameTranslator/releases") { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/altyazi-koprusu/releases") { UseShellExecute = true });
     }
 
     private void OnOpenGuidePdf(object sender, RoutedEventArgs e)
     {
-        Process.Start(new ProcessStartInfo("https://github.com/Sefflex/GameTranslator/raw/main/docs/GameTranslator_TV_Kurulum_Rehberi.pdf") { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/altyazi-koprusu/raw/main/docs/GameTranslator_TV_Kurulum_Rehberi.pdf") { UseShellExecute = true });
     }
 
     // ==========================================
@@ -772,13 +772,13 @@ public partial class OnboardingView : UserControl
     // ==========================================
     private void OnTestDesktopOverlay(object sender, RoutedEventArgs e)
     {
-        DesktopSubtitleOverlay.Notice("Altyazı Köprüsü: Masaüstü Ekran Altyazısı Başarıyla Çalışıyor! [HUD TESTİ]");
+        DesktopSubtitleOverlay.Notice("Ludora: Masaüstü Ekran Altyazısı Başarıyla Çalışıyor! [HUD TESTİ]");
     }
 
     private void OnTestTv(object sender, RoutedEventArgs e)
     {
         controller.SendTestSubtitle();
-        DesktopSubtitleOverlay.Notice("Altyazı Köprüsü: Canlı Türkçe Altyazı Testi Başarılı!");
+        DesktopSubtitleOverlay.Notice("Ludora: Canlı Türkçe Altyazı Testi Başarılı!");
         MessageBox.Show("Deneme yazısı gönderildi. TV'de görünüyorsa her şey hazır.", "Gönderildi", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 }

@@ -1,48 +1,70 @@
-# Altyazı Köprüsü
+# Ludora
 
-PlayStation 5 oyunlarına Android TV üzerinde Türkçe altyazı ekleyen, açık kaynaklı bir araç.
+Konsol oyunlarına canlı Türkçe altyazı. Ludora oyun ekranındaki İngilizce yazıları okur (OCR), Türkçeye çevirir ve çeviriyi oyunun üstüne yazar.
 
-PS5'in HDMI çıkışı televizyona doğrudan bağlı kalır; görüntü ve gecikme etkilenmez. Altyazıyı televizyondaki Android TV uygulaması HDMI görüntüsünün üstüne çizer. Metni ise Mac (veya Windows) bilgisayar üretir: bilgisayar, PS5'e **ikinci bir PSN hesabıyla** Remote Play üzerinden bağlanır, oyun ekranını okur (OCR), İngilizce metni Türkçeye çevirir ve yerel ağ üzerinden televizyona gönderir. Mac'te çeviri Apple'ın cihaz üstü çeviri özelliğiyle yapılır.
+Çevrilenler: diyalog altyazıları, görev hedefleri, bilgi/öğretici kutuları, bildirim kartları, harita ve menü açıklamaları, oyun içi telefondaki mesajlaşmalar (telefonun yanında sohbet paneli olarak).
+
+## Hangi kurulum bana uygun?
+
+| Kurulum | Gerekenler | Çeviri nerede görünür |
+|---|---|---|
+| **Xbox + PC + Monitör** | Xbox Series S/X, Windows 10/11 64-bit PC | Oyun PC'de (xbox.com/play) tam ekran oynanır, çeviri üstüne yazılır |
+| **Xbox + PC + Smart TV** | Yukarıdakiler + PC'den TV'ye HDMI kablo | PC görüntüsü TV'ye verilir, çeviri oyunun üstünde |
+| **PS5 + Mac + Android TV** | PS5, ikinci PSN hesabı, Apple Silicon Mac (macOS 14+), HDMI görüntüsünü uygulamalara aktaran Android TV | PS5 doğrudan TV'ye bağlı kalır; TV uygulaması çeviriyi HDMI görüntüsünün üstüne çizer |
 
 ```
-PS5 --HDMI--> Android TV (Altyazı Köprüsü TV uygulaması)
-PS5 --Remote Play (2. PSN hesabı)--> Mac/Windows --OCR + çeviri--> yerel ağ --> TV
+Xbox ──(ağ)──► PC: xbox.com/play + Ludora ──► Monitör ya da (HDMI) Smart TV
+PS5 ──HDMI──► Android TV (Ludora TV uygulaması)
+PS5 ──Remote Play (2. PSN hesabı)──► Mac: OCR + çeviri ──(yerel ağ)──► TV
 ```
 
-## Gereksinimler
+## İndirme
 
-- PS5 ve ikinci bir PSN hesabı (oyunu oynadığınız hesaptan ayrı)
-- Android TV (HDMI girişini uygulamalara aktaran bir model gerekir, aşağıya bakın)
-- Apple Silicon Mac, macOS 14 veya üstü (Windows sürümü için bkz. sınırlar)
-- Mac, PS5 ve TV aynı yerel ağda
-- [chiaki-ng](https://github.com/chiaki-ng/chiaki-ng/releases) ve PS5 eşleştirmesi için Node.js LTS
+[Sürümler](https://github.com/Shuaiv2/altyazi-koprusu/releases) sayfasından:
+
+- **Windows (Xbox):** `Ludora-Windows-<sürüm>.zip` + `Ludora-Kurulum-Rehberi.pdf`
+- **Mac (PS5):** `Ludora-Mac-<sürüm>.zip` (TV uygulaması Mac uygulamasının içinden kurulur)
 
 ## Hızlı başlangıç
 
-1. Sürümler sayfasından Mac zip'ini ve `AltyaziKoprusu-TV.apk` dosyasını indirin.
-2. APK'yı televizyona kurun, Mac uygulamasını açın.
-3. PS5'te ikinci hesabı ekleyip Remote Play'i açın, Mac uygulamasından eşleştirin.
+### Windows + Xbox (monitör veya Smart TV)
 
-Adım adım anlatım: [docs/KURULUM.md](docs/KURULUM.md)
+1. Xbox'ta **Ayarlar › Cihazlar ve bağlantılar › Uzak özellikler › Uzak özellikleri etkinleştir**; güç modu **Uyku**.
+2. Oyunun ayarlarından **altyazıları aç**.
+3. PC'de Edge/Chrome ile **xbox.com/play** › aynı Microsoft hesabı › Konsollarım › **Uzaktan oynat**, ardından <kbd>F11</kbd>.
+4. Zip'i ayıkla, **Ludora.exe**'yi çalıştır (imzasız uygulama uyarısında: Ek bilgi › Yine de çalıştır).
+5. Sihirbazda **Xbox** › **Bu bilgisayarda (tam ekran oyunun üstünde)** › Xbox penceresini seç › **Çeviriyi Başlat**.
+6. Smart TV için: PC'yi HDMI ile TV'ye bağla, <kbd>Win</kbd>+<kbd>P</kbd> › Yalnızca ikinci ekran, ses çıkışını TV yap.
+
+Kısayollar: <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>O</kbd> çeviriyi göster/gizle, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd> yer ve boyut.
+
+Ayrıntılı anlatım: `Ludora-Kurulum-Rehberi.pdf` (sürüm sayfasında).
+
+### Mac + PS5 + Android TV
+
+1. Mac uygulamasını açın, Ekran Kaydı izni verin.
+2. PS5'te ikinci hesabı ekleyip Uzaktan Oynatma'yı açın, Mac uygulamasından eşleştirin.
+3. TV uygulamasını Mac uygulamasının içinden kurun ve açın; TV, Mac'i ağda kendisi bulur.
+4. **Çeviriyi Başlat**.
+
+Adım adım: [docs/KURULUM.md](docs/KURULUM.md)
 
 ## Sınırlar ve bilinen sorunlar
 
-- Televizyonun HDMI görüntüsünü uygulamalara aktarması gerekir. Yalnızca Philips TPM171E (Android 8) üzerinde denendi; başka modellerde çalışmayabilir.
-- Mac uygulaması ad-hoc imzalıdır (Apple Developer hesabıyla imzalı/noter onaylı değil). İlk açılışta sağ tık → Aç gerekir; güncellemeden sonra Ekran Kaydı iznini yeniden vermeniz gerekebilir.
-- TV APK'sı, kendi anahtarınızı tanımlamadıysanız debug anahtarıyla imzalanır.
-- Windows sürümü derlenir ancak henüz kimse çalıştırıp denemedi. Sorun çıkabilir.
-- OCR yalnızca ekrandaki yazıyı okur; sesi çevirmez. Hatalı okuma ve çeviri olabilir.
+- **Windows sürümü gerçek bir Windows bilgisayarda henüz denenmedi.** Tarayıcı Xbox görüntüsünün okunmasına izin vermezse (siyah görüntü) Edge'de grafik hızlandırmayı kapatmak ya da Windows Xbox uygulamasını denemek gerekebilir.
+- Windows paketi şimdilik yalnızca Xbox içindir; PS5 bağlantısı Windows paketinde yok.
+- Uygulamalar imzasızdır: Windows'ta SmartScreen uyarısı çıkar; Mac'te ilk açılışta sağ tık › Aç gerekir ve güncellemeden sonra Ekran Kaydı izni yeniden verilir.
+- Android TV uygulaması yalnızca HDMI görüntüsünü uygulamalara aktaran modellerde çalışır (Philips Android TV'de denendi). Android olmayan akıllı TV'lerde Xbox + PC + Smart TV kurulumu kullanılır.
+- OCR yalnızca ekrandaki yazıyı okur; ses çevrilmez. Makine çevirisidir, hatalar olabilir.
 
 ## Gizlilik
 
-- Apple cihaz üstü çeviri seçiliyken hiçbir metin internete gönderilmez; her şey yerel ağınızda kalır.
-- Google, Gemini veya DeepL gibi çevrimiçi bir çeviri hizmetini siz seçerseniz, okunan altyazı metni o hizmete gönderilir. Ekran görüntüsü gönderilmez.
-- Uygulama analitik veya kullanım verisi toplamaz. Ayrıntı: [PRIVACY.md](PRIVACY.md)
+- Mac'te Apple'ın cihaz üstü çevirisi, Windows'ta bilgisayardaki çeviri modeli kullanıldığında hiçbir metin internete gönderilmez.
+- DeepL gibi çevrimiçi bir hizmeti siz seçerseniz yalnızca okunan altyazı metni o hizmete gönderilir; ekran görüntüsü gönderilmez.
+- Analitik veya kullanım verisi toplanmaz. Ayrıntı: [PRIVACY.md](PRIVACY.md)
 
-## Köken ve lisans
+## Lisans
 
-Altyazı Köprüsü, sefflex'in [GameTranslator](https://gitlab.com/sefflex/GameTranslator) projesinin değiştirilmiş bir çatalıdır. GameTranslator ise Sinan Yorulmaz'ın [CouchSubs](https://github.com/yorulmazsinan/couchsubs) projesine dayanır. Yapılan değişikliklerin özeti [NOTICE](NOTICE) dosyasındadır; ayrıntılı geçmiş git kayıtlarındadır.
+Açık kaynak; **AGPL-3.0** ile dağıtılır. Lisans ve telif bildirimleri: [LICENSE](LICENSE), [NOTICE](NOTICE), [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
 
-Bu proje **GNU Affero Genel Kamu Lisansı v3 (AGPL-3.0)** ile dağıtılır: [LICENSE](LICENSE). Kaynak kodunu değiştirip bir ağ hizmeti olarak sunarsanız kaynağı da paylaşmanız gerekir. Üçüncü taraf bileşenler: [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
-
-Sony, PlayStation, Philips, Apple ve diğer adlar ilgili sahiplerine aittir; bu proje onlarla bağlantılı değildir.
+Xbox, PlayStation, Philips, Apple ve diğer adlar ilgili sahiplerinin markalarıdır; Ludora onlarla bağlantılı değildir.

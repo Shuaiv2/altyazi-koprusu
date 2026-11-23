@@ -18,7 +18,7 @@ namespace GameTranslator.App.Services;
 /// </remarks>
 internal sealed class WindowsFirewall : IFirewall
 {
-    private const string RuleName = "GameTranslator";
+    private const string RuleName = "Ludora";
     // NET_FW_PROFILE2_DOMAIN, _PRIVATE, _PUBLIC
     private static readonly int[] Profiles = [1, 2, 4];
     // NET_FW_IP_PROTOCOL_TCP, _UDP; 256 = herhangi biri

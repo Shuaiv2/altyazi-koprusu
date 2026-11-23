@@ -81,6 +81,45 @@ html, body {
   word-wrap: break-word;
   overflow: hidden;
 }
+/* "over" kartı: oyunun arayüzünün parçası gibi; renk, zemin ve gölge temadan (satır içi) gelir. */
+#screen .over-item {
+  padding: 0.4em 0.7em;
+  border-radius: 12px;
+  line-height: 1.25;
+  font-weight: 600;
+  white-space: pre-line;
+}
+#screen .over-item .over-speaker { font-weight: 700; font-size: 1.08em; }
+#screen .over-item .over-title { font-weight: 700; }
+/* "beside": telefonun yanındaki sohbet paneli */
+#screen .chat-panel {
+  position: absolute;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  overflow: hidden;
+  border-radius: 14px;
+  background: rgba(12, 12, 16, 0.78);
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.45);
+  color: #fff;
+  line-height: 1.3;
+  display: flex;
+  flex-direction: column;
+}
+#screen .chat-head { font-weight: 700; font-size: 0.85em; color: rgba(255, 255, 255, 0.7); margin-bottom: 6px; flex: none; }
+#screen .chat-list { display: flex; flex-direction: column; flex: none; }
+#screen .chat-bubble {
+  box-sizing: border-box;
+  max-width: 85%;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-radius: 14px;
+  color: #fff;
+  word-wrap: break-word;
+  white-space: pre-line;
+}
+#screen .chat-bubble:last-child { margin-bottom: 0; }
+#screen .chat-them { align-self: flex-start; background: rgba(255, 255, 255, 0.14); }
+#screen .chat-me { align-self: flex-end; background: rgba(10, 132, 255, 0.85); }
 #screen .item.paragraphs { text-align: left; white-space: pre-line; }
 
 /* Hızlı konuşmada önceki satır kısa süre yeni satırın üstünde, daha soluk durur. */

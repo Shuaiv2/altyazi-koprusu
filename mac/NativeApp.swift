@@ -418,8 +418,8 @@ public final class NativeSubtitleServer: @unchecked Sendable {
 
     private func startPing() {
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + 15, repeating: 15)
-        timer.setEventHandler { [weak self] in self?.sendToAll(Data(": ping\n\n".utf8)) }
+        timer.schedule(deadline: .now() + 5, repeating: 5)
+        timer.setEventHandler { [weak self] in self?.sendToAll(Data("event: ping\ndata: {}\n\n".utf8)) }
         timer.resume()
         pingTimer = timer
     }
@@ -1755,7 +1755,7 @@ final class AppState {
         if systemAssertion != 0 { IOPMAssertionRelease(systemAssertion); systemAssertion = 0 }
     }
 
-    // Ekran metni (1.6.0): tam kare üzerinde ~1 sn'de bir ayrı OCR geçişi; görev hedefi, bilgi kutusu, telefon/bildirim ve
+    // Ekran metni (1.6.0, 1.7.0'da telefon/tema/çapraz doğrulama eklendi): tam kare üzerinde ~1 sn'de bir ayrı OCR geçişi; görev hedefi, bilgi kutusu, telefon/bildirim ve
     // harita/menü açıklamaları sınıflandırılır (bkz. ScreenText.swift). Eski sabit kırpma ayarları kaldırıldı
     // (gt_info_left.. / gt_phone_* anahtarları UserDefaults'ta zararsız kalır).
     var objectiveEnabled: Bool = UserDefaults.standard.object(forKey: "gt_objective_enabled") as? Bool ?? true {
@@ -1773,13 +1773,21 @@ final class AppState {
     }
     var liveInfo: String = ""
     @ObservationIgnored private var screenTracker = ScreenTracker()
+    /// Son görülen telefon kutusu (sohbet paneli TV'de bunun yanına konur).
+    @ObservationIgnored private var lastPhoneBox: CGRect?
     @ObservationIgnored private var screenBusy = false
+    /// Son tam kare geçişi: satırlar (altyazı çapraz doğrulaması), dışlanacak alanlar (telefon, bildirim kartları) ve zamanı.
+    @ObservationIgnored private var lastScreenLines: [ScreenLine] = []
+    @ObservationIgnored private var lastScreenExclusions: [CGRect] = []
+    @ObservationIgnored private var lastScreenAt: TimeInterval = -1000
     @ObservationIgnored private var screenSeq = 0
     /// yuva -> TV'ye gönderilmiş öğe (aynı türün birden çok yuvası birlikte gönderilir)
     @ObservationIgnored private var screenItems: [String: [String: Any]] = [:]
     @ObservationIgnored private var screenKinds: [String: ScreenKind] = [:]
     @ObservationIgnored private var screenGen: [String: Int] = [:]
     @ObservationIgnored private var lastScreenMode: ScreenMode = .game
+    /// Ekran geçişinin (debounce edilmiş) modu menu/map/phone iken altyazı hattı susturulur.
+    @ObservationIgnored private var subtitleSuppressedByScreenMode = false
     @ObservationIgnored private var infoTick = 0
     @ObservationIgnored private var resendGuard = ResendGuard()
     @ObservationIgnored private var lastOffscreenLogAt: Date = .distantPast
@@ -1887,11 +1895,18 @@ final class AppState {
     var isMuteComputerAudio: Bool = UserDefaults.standard.object(forKey: "gt_mute_computer_audio") as? Bool ?? true
     
     // OCR Okuma Alanı (16:9 PS5 Oyun Ekranı ve Altyazı Koordinatları)
+    // Varsayılan bant iki satırlık diyaloğu (y ≈ 0.82–0.93) tam kapsar; hedef satırı (y ≥ 0.94) dışarıda bırakır.
     var cropTop: Double = 0.72
-    var cropBottom: Double = 0.85
-    var cropLeft: Double = 0.16
-    var cropRight: Double = 0.84
+    var cropBottom: Double = 0.935
+    var cropLeft: Double = 0.12
+    var cropRight: Double = 0.88
     var selectedPreset: OCRAreaPreset = .bottomCenter
+    /// Altyazı OCR'ında gerçekten kullanılan bant. Standart ön ayarda, eski/dar değerler kalsa bile en az 0.72–0.935 × 0.12–0.88
+    /// okunur (iki satırlık altyazının ikinci satırı bandın dışında kalıp çöp okunuyordu). Diğer ön ayarlar/özel kutu aynen uygulanır.
+    var effectiveCrop: (top: Double, bottom: Double, left: Double, right: Double) {
+        guard selectedPreset == .bottomCenter else { return (cropTop, cropBottom, cropLeft, cropRight) }
+        return (min(cropTop, 0.72), max(cropBottom, 0.935), min(cropLeft, 0.12), max(cropRight, 0.88))
+    }
     /// Yalnızca oyun altyazısını çevir (tabela, plaka ve tuş ipuçlarını atla).
     var filterNoise: Bool = UserDefaults.standard.object(forKey: "gt_subtitle_only") as? Bool ?? true {
         didSet { UserDefaults.standard.set(filterNoise, forKey: "gt_subtitle_only") }
@@ -1983,7 +1998,7 @@ final class AppState {
         liveEnglish = "Subtitles will appear here as you play."
         history = []
         selectedPreset = .bottomCenter
-        cropTop = 0.72; cropBottom = 0.85; cropLeft = 0.16; cropRight = 0.84
+        cropTop = 0.72; cropBottom = 0.935; cropLeft = 0.12; cropRight = 0.88
     }
 
     static func localIPAddress() -> String {
@@ -2479,7 +2494,7 @@ final class AppState {
         self.sentenceJoiner.reset()
         self.fillerTask?.cancel()
         self.resendGuard.reset()
-        screenTracker.reset(); screenSeq += 1; screenItems = [:]; screenKinds = [:]; screenGen = [:]; lastScreenMode = .game
+        screenTracker.reset(); screenSeq += 1; screenItems = [:]; screenKinds = [:]; screenGen = [:]; lastScreenMode = .game; subtitleSuppressedByScreenMode = false
         for k in ["objective", "info", "notify", "description"] { server.clearScreen(region: k) }
         self.liveInfo = ""
         self.liveEnglish = "PS5 Canlı Akışı Bekleniyor"
@@ -2644,10 +2659,15 @@ final class AppState {
 
         let vW = Double(pureVideoCg.width)
         let vH = Double(pureVideoCg.height)
-        let cX = max(0, min(vW, vW * cropLeft))
-        let cY = max(0, min(vH, vH * cropTop))
-        let cW = max(20, min(vW - cX, vW * (cropRight - cropLeft)))
-        let cH = max(20, min(vH - cY, vH * (cropBottom - cropTop)))
+        let band = effectiveCrop
+        let cX = max(0, min(vW, vW * band.left))
+        let cY = max(0, min(vH, vH * band.top))
+        let cW = max(20, min(vW - cX, vW * (band.right - band.left)))
+        let cH = max(20, min(vH - cY, vH * (band.bottom - band.top)))
+        // Çapraz doğrulama ve dışlama için son tam kare geçişinin anlık görüntüsü (≤1.5 sn).
+        let screenFresh = ProcessInfo.processInfo.systemUptime - lastScreenAt <= 1.5
+        let screenSnap = screenFresh ? lastScreenLines : []
+        let excludeSnap = ProcessInfo.processInfo.systemUptime - lastScreenAt <= 3.0 ? lastScreenExclusions : []
         let cropRect = CGRect(x: cX, y: cY, width: cW, height: cH)
 
         guard let cropped = pureVideoCg.cropping(to: cropRect) else {
@@ -2657,7 +2677,7 @@ final class AppState {
 
         let subtitleOnly = self.filterNoise
         let dbg = SubtitleDebug.enabled
-        if dbg { SubtitleDebug.log("OCR #\(gen): kare \(pureVideoCg.width)x\(pureVideoCg.height), kırpma \(cropped.width)x\(cropped.height)") }
+        if dbg { SubtitleDebug.log("OCR #\(gen): kare \(pureVideoCg.width)x\(pureVideoCg.height), kırpma \(cropped.width)x\(cropped.height) (bant y \(String(format: "%.3f", band.top))–\(String(format: "%.3f", band.bottom)), x \(String(format: "%.3f", band.left))–\(String(format: "%.3f", band.right)))") }
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             defer {
                 DispatchQueue.main.async {
@@ -2708,7 +2728,24 @@ final class AppState {
                     ocrLines = verdict.kept
                 }
 
-                let detectedText = ocrLines.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                // Diyalog denetimi: kesik önizleme, telefon/bildirim kartı içindeki ve ortalanmamış satırlar elenir.
+                func frameRect(_ b: CGRect) -> CGRect {
+                    CGRect(x: band.left + Double(b.minX) * (band.right - band.left), y: band.top + (1.0 - Double(b.maxY)) * (band.bottom - band.top),
+                           width: Double(b.width) * (band.right - band.left), height: Double(b.height) * (band.bottom - band.top))
+                }
+                do {
+                    let framed = ocrLines.map { ScreenLine(text: $0.text, rect: frameRect($0.box), confidence: $0.confidence) }
+                    let gate = DialogueGate.evaluate(framed, exclude: excludeSnap)
+                    if dbg { for d in gate.dropped { SubtitleDebug.log("elendi [\(d.reason.rawValue)] \(ocrLines[d.index].text)") } }
+                    ocrLines = gate.kept.map { ocrLines[$0] }
+                }
+                var detectedText = ocrLines.map(\.text).joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                var crossRect: CGRect?
+                if subtitleOnly, !screenSnap.isEmpty, let hit = DialogueGate.crossCheck(cropText: detectedText, screen: screenSnap, exclude: excludeSnap) {
+                    if dbg { SubtitleDebug.log("OCR #\(gen): tam kare okuması kullanıldı: \"\(hit.text)\" (kırpma: \"\(detectedText)\")") }
+                    detectedText = hit.text
+                    crossRect = hit.rect
+                }
                 if dbg { SubtitleDebug.log("OCR #\(gen): birleşik metin: \"\(detectedText)\"") }
                 guard detectedText.count >= 2 else {
                     DispatchQueue.main.async {
@@ -2734,11 +2771,16 @@ final class AppState {
                 }
 
                 let currentBox: [String: Double]
-                if foundAny && maxX > minX && maxY > minY {
-                    let fullLeft = self.cropLeft + minX * (self.cropRight - self.cropLeft)
-                    let fullRight = self.cropLeft + maxX * (self.cropRight - self.cropLeft)
-                    let fullTop = self.cropTop + (1.0 - maxY) * (self.cropBottom - self.cropTop)
-                    let fullBottom = self.cropTop + (1.0 - minY) * (self.cropBottom - self.cropTop)
+                if let r = crossRect {
+                    currentBox = [
+                        "left": max(0.01, min(0.99, Double(r.minX))), "right": max(0.01, min(0.99, Double(r.maxX))),
+                        "top": max(0.01, min(0.99, Double(r.minY))), "bottom": max(0.01, min(0.99, Double(r.maxY)))
+                    ]
+                } else if foundAny && maxX > minX && maxY > minY {
+                    let fullLeft = band.left + minX * (band.right - band.left)
+                    let fullRight = band.left + maxX * (band.right - band.left)
+                    let fullTop = band.top + (1.0 - maxY) * (band.bottom - band.top)
+                    let fullBottom = band.top + (1.0 - minY) * (band.bottom - band.top)
                     currentBox = [
                         "left": max(0.01, min(0.99, fullLeft)),
                         "right": max(0.01, min(0.99, fullRight)),
@@ -2747,10 +2789,10 @@ final class AppState {
                     ]
                 } else {
                     currentBox = [
-                        "left": self.cropLeft,
-                        "right": self.cropRight,
-                        "top": self.cropTop,
-                        "bottom": self.cropBottom
+                        "left": band.left,
+                        "right": band.right,
+                        "top": band.top,
+                        "bottom": band.bottom
                     ]
                 }
 
@@ -2761,6 +2803,8 @@ final class AppState {
                         return
                     }
                     self.noTextCounter = 0
+                    // Menü / harita / telefon açıkken altyazı hattı tamamen susar (menü etiketleri altyazı sanılmasın).
+                    if self.subtitleSuppressedByScreenMode { return }
                     // Kararlılık: metin birkaç kare değişmeden durana kadar gönderme; aynı metni yeniden gönderme.
                     let action = self.stabilizer.feed(detectedText)
                     switch action {
@@ -2785,8 +2829,8 @@ final class AppState {
 
                     // Otomatik yerleşim konumunu hesapla
                     if self.placement != "fixed" {
-                        let top = currentBox["top"] ?? self.cropTop
-                        let bottom = currentBox["bottom"] ?? self.cropBottom
+                        let top = currentBox["top"] ?? band.top
+                        let bottom = currentBox["bottom"] ?? band.bottom
                         let centerY = (top + bottom) / 2.0
                         if self.placement == "cover" {
                             self.bottomPercent = max(2.0, min(85.0, (1.0 - centerY) * 100.0))
@@ -2861,11 +2905,12 @@ final class AppState {
         case .info: return infoEnabled
         case .notify: return notifyEnabled
         case .description: return descriptionEnabled
+        case .phone: return notifyEnabled
         }
     }
 
     private static func screenPlacement(_ k: ScreenKind) -> String {
-        switch k { case .info: return "below"; case .notify: return "left"; case .objective, .description: return "over" }
+        "over"
     }
 
     /// Ekran metni geçişi: tam karede Vision .accurate, ScreenText ile sınıflandırma, ScreenTracker ile kararlılık.
@@ -2889,14 +2934,24 @@ final class AppState {
                 }
             }
             let ms = Int(Date().timeIntervalSince(started) * 1000)
-            let result = ScreenText.analyze(lines)
+            let result = ScreenText.analyze(lines, bubbleBlue: { BubbleColor.isBlueBubble(in: frame, rect: $0) })
+            // Kart/kutu bölgesinin açık ya da koyu zemini (TV'deki Türkçe kartın temasını seçer).
+            var themes: [String: String] = [:]
+            for b in result.blocks { themes[b.slot] = Self.theme(of: frame, box: b.box) }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.screenBusy = false
                 guard self.isRunning, seq == self.screenSeq else { return }
+                // Altyazı hattı için: çapraz doğrulama satırları ve dışlanacak alanlar (telefon, bildirim kartları).
+                self.lastScreenLines = lines
+                self.lastScreenAt = ProcessInfo.processInfo.systemUptime
+                var excl: [CGRect] = result.blocks.filter { $0.kind == .notify || $0.kind == .phone }.map { $0.box.insetBy(dx: -0.01, dy: -0.01) }
+                if let ph = result.phone { excl.append(ph.box); self.lastPhoneBox = ph.box }
+                self.lastScreenExclusions = excl
                 let dbg = SubtitleDebug.enabled
                 if dbg {
                     SubtitleDebug.log("ekran: OCR \(ms) ms, \(lines.count) satır, mod=\(result.mode.rawValue)")
+                    if let ph = result.phone { SubtitleDebug.log("ekran: telefon \(ph.isList ? "liste" : "konuşma") kutu=\(ph.box)") }
                     for b in result.blocks { SubtitleDebug.log("ekran: blok [\(b.kind.rawValue)] \(b.speaker.map { "(\($0)) " } ?? "")\(b.title.map { "\"\($0)\" " } ?? "")\"\(b.text)\"") }
                 }
                 if result.mode != self.lastScreenMode {
@@ -2904,7 +2959,18 @@ final class AppState {
                     self.lastScreenMode = result.mode
                 }
                 let blocks = result.blocks.filter { self.screenKindEnabled($0.kind) }
-                for action in self.screenTracker.feed(blocks, mode: result.mode, at: ProcessInfo.processInfo.systemUptime) {
+                let trackerActions = self.screenTracker.feed(blocks, mode: result.mode, at: ProcessInfo.processInfo.systemUptime)
+                let suppress = self.screenTracker.currentMode != .game
+                if suppress != self.subtitleSuppressedByScreenMode {
+                    self.subtitleSuppressedByScreenMode = suppress
+                    if suppress {
+                        if dbg { SubtitleDebug.log("ekran: mod \(self.screenTracker.currentMode.rawValue) -> altyazı hattı susturuldu") }
+                        self.lastSentText = ""
+                        _ = self.stabilizer.reset()
+                        self.server.clearSubtitle()
+                    } else if dbg { SubtitleDebug.log("ekran: altyazı hattı yeniden açıldı") }
+                }
+                for action in trackerActions {
                     switch action {
                     case .clear(let slot, let kind):
                         if dbg { SubtitleDebug.log("ekran: izleyici temizle [\(slot)]") }
@@ -2915,16 +2981,40 @@ final class AppState {
                         if dbg { SubtitleDebug.log("ekran: izleyici çevir [\(block.slot)] \"\(block.text)\"") }
                         self.screenGen[block.slot, default: 0] += 1
                         let gen = self.screenGen[block.slot]!
-                        Task { await self.translateScreenBlock(block, gen: gen, dbg: dbg) }
+                        let theme = themes[block.slot] ?? "dark"
+                        Task { await self.translateScreenBlock(block, gen: gen, theme: theme, dbg: dbg) }
                     }
                 }
             }
         }
     }
 
-    private func translateScreenBlock(_ b: ScreenBlock, gen: Int, dbg: Bool) async {
-        let body = await translateText(GameEnglish.plain(b.text))
-        guard var turkish = body.text else { await MainActor.run { self.screenTracker.forgetShown(slot: b.slot) }; return }
+    /// Kutu bölgesinin ortalama parlaklığı > 0.55 ise "light", değilse "dark".
+    nonisolated static func theme(of frame: CGImage, box: CGRect) -> String {
+        let w = Double(frame.width), h = Double(frame.height)
+        let r = CGRect(x: box.minX * w, y: box.minY * h, width: box.width * w, height: box.height * h).integral
+            .intersection(CGRect(x: 0, y: 0, width: w, height: h))
+        guard !r.isNull, r.width >= 1, r.height >= 1, let crop = frame.cropping(to: r) else { return "dark" }
+        let n = 16
+        var px = [UInt8](repeating: 0, count: n * n)
+        guard let ctx = CGContext(data: &px, width: n, height: n, bitsPerComponent: 8, bytesPerRow: n, space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return "dark" }
+        ctx.interpolationQuality = .medium
+        ctx.draw(crop, in: CGRect(x: 0, y: 0, width: n, height: n))
+        let mean = px.reduce(0.0) { $0 + Double($1) } / Double(px.count) / 255.0
+        return mean > 0.55 ? "light" : "dark"
+    }
+
+    private func translateScreenBlock(_ b: ScreenBlock, gen: Int, theme: String, dbg: Bool) async {
+        if !b.messages.isEmpty { await translatePhoneConversation(b, gen: gen, theme: theme, dbg: dbg); return }
+        // Gövde "\n" ile ayrılmış parçalardan oluşabilir (başlık/gövde); her parça ayrı çevrilir.
+        var parts: [String] = []
+        for seg in b.text.components(separatedBy: "\n") where !seg.isEmpty {
+            let r = await translateText(GameEnglish.plain(seg))
+            guard let t = r.text else { await MainActor.run { self.screenTracker.forgetShown(slot: b.slot) }; return }
+            parts.append(t)
+        }
+        guard !parts.isEmpty else { await MainActor.run { self.screenTracker.forgetShown(slot: b.slot) }; return }
+        var turkish = parts.joined(separator: "\n")
         var source = b.text
         if let title = b.title {
             let t = await translateText(GameEnglish.plain(title))
@@ -2939,11 +3029,36 @@ final class AppState {
                 SubtitleDebug.log("ekran: düğme belirteci uyuşmazlığı kaynak=\(GlyphNormalizer.tokens(in: b.text)) çeviri=\(GlyphNormalizer.tokens(in: finalTurkish)) (yine de gönderildi)")
             }
             let box: [String: Double] = ["left": Double(b.box.minX), "top": Double(b.box.minY), "right": Double(b.box.maxX), "bottom": Double(b.box.maxY)]
-            var item: [String: Any] = ["text": finalTurkish, "source": finalSource, "box": box, "line": b.lineHeight, "placement": Self.screenPlacement(b.kind)]
+            // Estetik protokolü: Türkçe kart İngilizce arayüz öğesinin tam üstünü kaplar ("over"); tema kutu bölgesinin parlaklığından.
+            var item: [String: Any] = ["text": finalTurkish, "source": finalSource, "box": box, "line": b.lineHeight, "placement": Self.screenPlacement(b.kind), "theme": theme]
             if let sp = b.speaker { item["speaker"] = sp }
             self.screenItems[b.slot] = item
             self.screenKinds[b.slot] = b.kind
             self.liveInfo = finalTurkish
+            self.sendScreenKind(b.kind)
+        }
+    }
+
+    /// Açık telefon konuşması: her balon ayrı çevrilir; TV'ye telefonun yanında tek "beside" sohbet paneli gider.
+    private func translatePhoneConversation(_ b: ScreenBlock, gen: Int, theme: String, dbg: Bool) async {
+        var msgs: [[String: Any]] = []
+        var trLines: [String] = []
+        for m in b.messages {
+            let r = await translateText(GameEnglish.plain(m.text))
+            guard let t = r.text else { await MainActor.run { self.screenTracker.forgetShown(slot: b.slot) }; return }
+            msgs.append(["from": m.fromMe ? "me" : "them", "text": t, "source": m.text])
+            trLines.append(t)
+        }
+        let finalTr = trLines.joined(separator: "\n")
+        await MainActor.run {
+            guard self.isRunning, self.screenGen[b.slot] == gen else { return }
+            let phone = self.lastPhoneBox ?? b.box
+            let box: [String: Double] = ["left": Double(phone.minX), "top": Double(phone.minY), "right": Double(phone.maxX), "bottom": Double(phone.maxY)]
+            var item: [String: Any] = ["text": "", "source": b.text, "box": box, "line": b.lineHeight, "placement": "beside", "theme": theme, "messages": msgs]
+            if let sp = b.speaker { item["speaker"] = sp }
+            self.screenItems[b.slot] = item
+            self.screenKinds[b.slot] = b.kind
+            self.liveInfo = finalTr
             self.sendScreenKind(b.kind)
         }
     }
@@ -3370,7 +3485,7 @@ final class AppState {
         selectedPreset = preset
         switch preset {
         case .bottomCenter:
-            cropTop = 0.72; cropBottom = 0.85; cropLeft = 0.16; cropRight = 0.84
+            cropTop = 0.72; cropBottom = 0.935; cropLeft = 0.12; cropRight = 0.88
         case .bottomWide:
             cropTop = 0.65; cropBottom = 0.94; cropLeft = 0.08; cropRight = 0.92
         case .fullBottom:

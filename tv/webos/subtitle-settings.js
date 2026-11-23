@@ -262,8 +262,122 @@
     return clamp(px, 18, Math.max(18, num(userFont, 44)));
   }
 
+  // "over" kartının teması: İngilizce arayüz öğesinin parlaklığı. Yok ya da geçersizse koyu.
+  function overTheme(item) {
+    return item && item.theme === 'light' ? 'light' : 'dark';
+  }
+
+  // Kart rengi: açık tema neredeyse beyaz, koyu tema yarı opak siyah. Kullanıcının zemin saydamlığı altındaki İngilizceyi
+  // göstermeyecek kadar saydam olamaz (alfa en az 0.92); yüksek ayar tema alfasını artırabilir.
+  function overCardStyle(theme, bgOpacity) {
+    var light = theme === 'light';
+    var base = light ? 0.98 : 0.93;
+    var user = clamp(num(bgOpacity, 0), 0, 100) / 100;
+    var alpha = Math.min(1, Math.max(0.92, base, user));
+    alpha = Math.round(alpha * 100) / 100;
+    return {
+      theme: light ? 'light' : 'dark',
+      alpha: alpha,
+      background: light ? 'rgba(246, 246, 248, ' + alpha + ')' : 'rgba(14, 14, 18, ' + alpha + ')',
+      color: light ? '#15161a' : '#ffffff',
+      boxShadow: light ? '0 2px 10px rgba(0, 0, 0, 0.28)' : '0 2px 10px rgba(0, 0, 0, 0.45)',
+      textShadow: light ? 'none' : '0 1px 2px rgba(0, 0, 0, 0.6)'
+    };
+  }
+
+  // Kartın metin parçaları: konuşmacı (varsa) ayrı satır; metin "\n" ile bölünür. Açıklamada (konuşmacı yokken, birden çok parça)
+  // ilk parça başlıktır ve kalın yazılır.
+  function overParts(item) {
+    var speaker = item && typeof item.speaker === 'string' ? item.speaker.replace(/^\s+|\s+$/g, '') : '';
+    var raw = item && typeof item.text === 'string' ? item.text.split('\n') : [];
+    var segs = [];
+    for (var i = 0; i < raw.length; i++) {
+      var t = raw[i].replace(/^\s+|\s+$/g, '');
+      if (t) segs.push(t);
+    }
+    return { speaker: speaker, segments: segs, titleBold: !speaker && segs.length > 1 };
+  }
+
+  // Kartın en çok büyüyebileceği yükseklik: İngilizce kutunun 1.6 katı (en az kutu kadar), ekran sınırını da aşmaz (rectMaxHeight).
+  function overMaxGrow(boxHeightPx, rectMaxHeight) {
+    var bh = Math.max(0, num(boxHeightPx, 0));
+    var cap = Math.max(0, num(rectMaxHeight, bh * 1.6));
+    return Math.max(0, Math.min(Math.round(bh * 1.6), cap));
+  }
+
+  // Sığdırma kararı: 'ok' (sığdı), 'shrink' (yazıyı küçült) ya da 'min' (en küçük boya ulaşıldı, daha fazlası yok).
+  function overFit(contentHeight, limitHeight, size, minSize) {
+    if (num(contentHeight, 0) <= num(limitHeight, 0)) return 'ok';
+    return size > num(minSize, 18) ? 'shrink' : 'min';
+  }
+
   function isOverItem(item) {
     return !!item && typeof item === 'object' && item.placement === 'over';
+  }
+
+  // "beside": telefon sohbet paneli. Telefon kutusunun SOLUNA (sağ kenar = box.left*w - 24), yer yoksa SAĞINA konur;
+  // ikisine de sığmazsa daha geniş olan yan seçilir ve ekran kenar boşluğuna sıkıştırılır. Genişlik min(0.24*w, 460),
+  // üst kenar = box.top, en çok yükseklik = kutu yüksekliği (ekrana sıkıştırılır). placed: 'left' | 'right'.
+  function besideRect(box, vw, vh, margin) {
+    var w = Math.max(1, num(vw, 1920)), h = Math.max(1, num(vh, 1080));
+    var m = Math.max(0, Math.min(num(margin, 48), Math.floor(w / 4)));
+    var gap = 24;
+    var width = Math.min(0.24 * w, 460);
+    var bl = num(box.left, 0) * w, br = num(box.right, 0) * w;
+    var vm = Math.min(m, 24);
+    var boxTop = num(box.top, 0) * h;
+    var boxH = Math.max(0, (num(box.bottom, 0) - num(box.top, 0)) * h);
+    var maxH = Math.max(60, Math.min(boxH, h - 2 * vm));
+    var top = clamp(boxTop, vm, Math.max(vm, h - vm - maxH));
+    var leftRoom = bl - gap - m, rightRoom = w - m - (br + gap);
+    var placed, left;
+    if (leftRoom >= width) { placed = 'left'; left = bl - gap - width; }
+    else if (rightRoom >= width) { placed = 'right'; left = br + gap; }
+    else {
+      placed = leftRoom >= rightRoom ? 'left' : 'right';
+      width = Math.max(1, Math.min(width, Math.max(leftRoom, rightRoom)));
+      left = placed === 'left' ? bl - gap - width : br + gap;
+    }
+    left = clamp(left, m, Math.max(m, w - m - width));
+    return { left: Math.round(left), top: Math.round(top), width: Math.round(width), maxHeight: Math.round(maxH), placed: placed };
+  }
+
+  // Sohbet panel yazı boyu: 1080p'de 23 px, yükseklikle ölçeklenir, en az 18.
+  function besideFontSize(vh) {
+    return Math.max(18, Math.round(23 * Math.max(1, num(vh, 1080)) / 1080));
+  }
+
+  // Taşan sohbet: heights = balon yükseklikleri (eskiden yeniye), gap = balonlar arası boşluk, avail = balonlara ayrılan yükseklik.
+  // Dönen indeks ilk görünen balondur; en eski balonlar atılır, en yeni (son) her zaman kalır.
+  function besideFirstVisible(heights, gap, avail) {
+    var n = (heights || []).length;
+    if (n === 0) return 0;
+    var g = Math.max(0, num(gap, 6)), used = 0, first = n;
+    for (var i = n - 1; i >= 0; i--) {
+      var add = Math.max(0, num(heights[i], 0)) + (first === n ? 0 : g);
+      if (first !== n && used + add > avail) break;
+      used += add;
+      first = i;
+    }
+    return first;
+  }
+
+  // Geçerli iletiler: [{from:'them'|'me', text}] (boş metin atılır); from 'me' dışı 'them' sayılır.
+  function besideMessages(item) {
+    var out = [];
+    var list = item && item.messages;
+    if (!list || typeof list.length !== 'number') return out;
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i];
+      if (!m || typeof m.text !== 'string') continue;
+      var t = m.text.replace(/^\s+|\s+$/g, '');
+      if (t) out.push({ from: m.from === 'me' ? 'me' : 'them', text: t });
+    }
+    return out;
+  }
+
+  function isBesideItem(item) {
+    return !!item && typeof item === 'object' && item.placement === 'beside' && besideMessages(item).length > 0;
   }
 
   // Bölge -> menü anahtarı: 'phone' ve 'notify' telefonMesajları, geri kalan bölgeler bilgi kutuları anahtarına bağlı.
@@ -324,8 +438,18 @@
     belowRect: belowRect,
     leftRect: leftRect,
     overRect: overRect,
+    besideRect: besideRect,
+    besideFontSize: besideFontSize,
+    besideFirstVisible: besideFirstVisible,
+    besideMessages: besideMessages,
+    isBesideItem: isBesideItem,
     overFontSize: overFontSize,
     isOverItem: isOverItem,
+    overTheme: overTheme,
+    overCardStyle: overCardStyle,
+    overParts: overParts,
+    overMaxGrow: overMaxGrow,
+    overFit: overFit,
     toggleKeyForRegion: toggleKeyForRegion,
     stackRects: stackRects,
     isInfoItem: isInfoItem,

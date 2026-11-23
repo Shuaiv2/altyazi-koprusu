@@ -70,6 +70,22 @@ import Foundation
         r = j.feed(String(repeating: "y", count: 100) + ",", at: 1)
         eq(r.source.count <= 220, true, "max chars")
 
+        // Tekrar: aynı parça yeniden okununca eklenmez; üst küme okuma öncekinin yerine geçer
+        j = SentenceJoiner()
+        _ = j.feed("They should check with Brian or Bonnie,", at: 0)
+        r = j.feed("They should check with Brian or Bonnie, and", at: 1)
+        eq(r.source, "They should check with Brian or Bonnie, and", "superset replaces")
+        r = j.feed("they should check with Brian or Bonnie,", at: 2)
+        eq(r.source, "They should check with Brian or Bonnie, and", "subset ignored")
+        j = SentenceJoiner()
+        _ = j.feed("Welcome to BuckMe,", at: 0)
+        r = j.feed("Welcome to BuckMe,", at: 1)
+        eq(r.source, "Welcome to BuckMe,", "same read twice"); eq(r.isContinuation, false, "same read no cont")
+        j = SentenceJoiner()
+        _ = j.feed("We should probably go see the boss...", at: 0)
+        r = j.feed("see the boss and tell him now.", at: 1)
+        eq(r.source.components(separatedBy: "see the boss").count - 1, 1, "no duplicated fragment: \(r.source)")
+
         print(failures == 0 ? "OK" : "\(failures) FAILED")
         exit(failures == 0 ? 0 : 1)
     }

@@ -6,11 +6,11 @@
     <SupportedOSPlatformVersion>10.0.19041.0</SupportedOSPlatformVersion>
     <UseWPF>true</UseWPF>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <AssemblyName>GameTranslator</AssemblyName>
+    <AssemblyName>Ludora</AssemblyName>
     <!-- Kullanıcıya görünen ad (kod adları, ad alanları ve ayar anahtarları GameTranslator kalır). -->
-    <Product>Altyazı Köprüsü</Product>
-    <AssemblyTitle>Altyazı Köprüsü</AssemblyTitle>
-    <Description>Altyazı Köprüsü — PS5 oyun altyazılarını Türkçeye çevirip TV'ye gönderir. GameTranslator (AGPL-3.0) tabanlıdır.</Description>
+    <Product>Ludora</Product>
+    <AssemblyTitle>Ludora</AssemblyTitle>
+    <Description>Ludora — oyun altyazılarını gerçek zamanlı Türkçeye çevirip TV'de ya da bilgisayarda oyunun üstünde gösterir.</Description>
     <RootNamespace>GameTranslator.App</RootNamespace>
     <ApplicationIcon>Assets\AltyaziKoprusu.ico</ApplicationIcon>
     <!-- Per-monitor DPI V2: çok monitörde katman ve ekran yakalama gerçek piksel koordinatlarıyla çalışır. -->
@@ -24,9 +24,9 @@
     <StartupObject>GameTranslator.App.Program</StartupObject>
   </PropertyGroup>
 
-  <!-- Paket sunucusu (CouchSubs'ın, izinle): yeni ve düzeltilmiş paketler buradan iner (PackUpdater). Boş verilirse kapalı. -->
+  <!-- Paket sunucusu (kapalı): yeni ve düzeltilmiş paketler buradan iner (PackUpdater). Boş verilirse kapalı. -->
   <PropertyGroup>
-    <GameTranslatorPacksUrl Condition="'$(GameTranslatorPacksUrl)' == ''">https://couchsubs-packs.enmera.workers.dev</GameTranslatorPacksUrl>
+    <GameTranslatorPacksUrl Condition="'$(GameTranslatorPacksUrl)' == ''"></GameTranslatorPacksUrl>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="GameTranslatorPacksUrl" Value="$(GameTranslatorPacksUrl)" />
@@ -45,6 +45,13 @@
     <Resource Include="Assets\AltyaziKoprusu.ico" />
     <!-- Inter (SIL Open Font License 1.1; Assets\Fonts\Inter-LICENSE): mobil uygulamayla aynı yazı tipi. -->
     <Resource Include="Assets\Fonts\*.ttf" />
+  </ItemGroup>
+
+  <!-- AGPL-3.0 gereği lisans ve bildirimler exe yanında yayımlanır (Hakkında penceresi bunları açar). -->
+  <ItemGroup>
+    <Content Include="..\..\..\LICENSE" Link="LICENSE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\..\NOTICE" Link="NOTICE" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- TV uygulaması paketleri: dist/tv-app altındaki paketler tv-app/ klasörüne kopyalanır. -->

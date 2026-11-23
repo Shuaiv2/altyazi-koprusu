@@ -130,6 +130,13 @@ public partial class MainView : UserControl
         SpeakerColorCheck.IsChecked = s.Style.SpeakerColor;
         SharePoolCheck.IsChecked = s.SharePool;
         if (SubtitleOnlyCheck != null) SubtitleOnlyCheck.IsChecked = s.SubtitleOnly;
+        if (ScreenObjectiveCheck != null)
+        {
+            ScreenObjectiveCheck.IsChecked = s.ScreenObjective;
+            ScreenInfoCheck.IsChecked = s.ScreenInfo;
+            ScreenNotifyCheck.IsChecked = s.ScreenNotify;
+            ScreenDescriptionCheck.IsChecked = s.ScreenDescription;
+        }
         if (OnlineFallbackCheck != null) OnlineFallbackCheck.IsChecked = s.AllowOnlineFallback;
         DubbingCheck.IsChecked = s.DubbingEnabled;
         MutePcCheck.IsChecked = isMutePc;
@@ -359,7 +366,7 @@ public partial class MainView : UserControl
         HomePs5Text.ToolTip = controller.Console?.Host;
 
         HomeHint.Text = !running ? "Oyunda altyazıları aç, sonra başlat."
-            : !tvOn ? "TV'de Altyazı Köprüsü'nü aç; çeviri oyunun üstünde görünür."
+            : !tvOn ? "TV'de Ludora'yı aç; çeviri oyunun üstünde görünür."
             : "Oynayabilirsin; çeviri TV'de oyunun üstünde görünür.";
 
         // Uyarı yalnız bir şey yolunda değilken.
@@ -840,6 +847,18 @@ public partial class MainView : UserControl
         controller.Settings = controller.Settings with { SubtitleOnly = SubtitleOnlyCheck.IsChecked == true };
     }
 
+    private void OnScreenToggle(object sender, RoutedEventArgs e)
+    {
+        if (loading) return;
+        controller.Settings = controller.Settings with
+        {
+            ScreenObjective = ScreenObjectiveCheck.IsChecked == true,
+            ScreenInfo = ScreenInfoCheck.IsChecked == true,
+            ScreenNotify = ScreenNotifyCheck.IsChecked == true,
+            ScreenDescription = ScreenDescriptionCheck.IsChecked == true,
+        };
+    }
+
     private void OnOnlineFallback(object sender, RoutedEventArgs e)
     {
         if (loading) return;
@@ -1135,7 +1154,7 @@ public partial class MainView : UserControl
             MessageBox.Show("Dışa aktarılacak altyazı geçmişi henüz yok.", "Geçmiş Boş", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        var dlg = new SaveFileDialog { Filter = "Metin Dosyası (*.txt)|*.txt", FileName = "AltyaziKoprusu_Altyazi_Gecmisi.txt" };
+        var dlg = new SaveFileDialog { Filter = "Metin Dosyası (*.txt)|*.txt", FileName = "Ludora_Altyazi_Gecmisi.txt" };
         if (dlg.ShowDialog() == true)
         {
             var lines = history.Select(h => $"{h.Time}\tTV: {h.Turkish}\tPS5: {h.English}");
@@ -1151,7 +1170,7 @@ public partial class MainView : UserControl
             MessageBox.Show("Dışa aktarılacak altyazı geçmişi henüz yok.", "Geçmiş Boş", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        var dlg = new SaveFileDialog { Filter = "JSON Dosyası (*.json)|*.json", FileName = "AltyaziKoprusu_Altyazi_Gecmisi.json" };
+        var dlg = new SaveFileDialog { Filter = "JSON Dosyası (*.json)|*.json", FileName = "Ludora_Altyazi_Gecmisi.json" };
         if (dlg.ShowDialog() == true)
         {
             var json = JsonSerializer.Serialize(history, new JsonSerializerOptions { WriteIndented = true });
@@ -1175,7 +1194,7 @@ public partial class MainView : UserControl
 
     private void OnResetAll(object sender, RoutedEventArgs e)
     {
-        if (MessageBox.Show("Altyazı Köprüsü ayarları sıfırlansın mı?", "Ayarları Sıfırla",
+        if (MessageBox.Show("Ludora ayarları sıfırlansın mı?", "Ayarları Sıfırla",
             MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
         {
             controller.ResetSettings();

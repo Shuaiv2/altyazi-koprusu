@@ -6,7 +6,7 @@
   'use strict';
 
   // TV uygulamasının sürümü: appinfo.json, tv-tizen/config.xml ve tv-android/app/build.gradle ile aynı tutulur.
-  var APP_VERSION = '1.6.0';
+  var APP_VERSION = '1.7.2';
   var t = window.t;
   var config = window.GAMETRANSLATOR_CONFIG || window.GAMETRANSLATOR_CONFIG || {};
   var platform = window.GAMETRANSLATOR_PLATFORM || window.GAMETRANSLATOR_PLATFORM;
@@ -337,6 +337,10 @@
     for (var i = 0; i < (items || []).length; i++) {
       var item = items[i];
       var box = validBox(item && item.box);
+      if (box && SUB.isBesideItem(item)) {
+        if (regionEnabled(name)) showBesideItem(host, item, box, width, height);
+        continue;
+      }
       if (!box || !item.text) continue;
       if (SUB.isOverItem(item)) {
         if (regionEnabled(name)) infoPlaced.push(showOverItem(host, item, box, width, height));
@@ -418,18 +422,38 @@
     return { el: el, rect: { left: rect.left, top: rect.top, width: rect.width, height: el.offsetHeight } };
   }
 
-  // "over": Türkçe kutu İngilizce kutuyu tam örter (opak zemin); uzunsa aşağı, alta sığmazsa yukarı uzar.
+  // "over": Türkçe kart İngilizce arayüz öğesini tam örter (temalı, opak zemin). Yazı overFontSize ile başlar;
+  // sığmazsa kart aşağı (alta yakınsa yukarı) en çok kutunun 1.6 katına büyür, sonra yazı en az 18 px'e küçülür.
+  var OVER_MIN_FONT = 18;
+
   function showOverItem(host, item, box, width, height) {
     var s = curSub();
     var line = typeof item.line === 'number' && item.line > 0 ? item.line : 0.03;
     var margin = Math.min(s.margin, Math.floor(width / 2) - 1);
+    var parts = SUB.overParts(item);
+    var st = SUB.overCardStyle(SUB.overTheme(item), s.bgOpacity);
     var el = document.createElement('div');
-    el.className = 'info-item over-item';
-    el.textContent = item.text;
-    el.style.background = SUB.rgba(s.bgColor, Math.max(s.bgOpacity, 92));
-    el.style.color = s.textColor;
+    el.className = 'info-item over-item over-' + st.theme;
+    el.style.background = st.background;
+    el.style.color = st.color;
+    el.style.boxShadow = st.boxShadow;
+    el.style.textShadow = st.textShadow;
+    if (parts.speaker) {
+      var sp = document.createElement('div');
+      sp.className = 'over-speaker';
+      sp.textContent = parts.speaker;
+      el.appendChild(sp);
+    }
+    for (var i = 0; i < parts.segments.length; i++) {
+      var seg = document.createElement('div');
+      seg.className = (i === 0 && parts.titleBold) ? 'over-seg over-title' : 'over-seg';
+      seg.textContent = parts.segments[i];
+      el.appendChild(seg);
+    }
     var size = SUB.overFontSize(line, height, s.fontSize);
+    var boxH = Math.max(0, (box.bottom - box.top) * height);
     var rect = SUB.overRect(box, line, width, height, margin, 0);
+    el.style.opacity = '0';
     host.appendChild(el);
     for (var guard = 0; guard < 60; guard++) {
       el.style.fontSize = size + 'px';
@@ -439,10 +463,63 @@
       el.style.top = rect.top + 'px';
       rect = SUB.overRect(box, line, width, height, margin, el.offsetHeight);
       el.style.top = rect.top + 'px';
-      if (el.offsetHeight <= rect.maxHeight || size <= INFO_MIN_FONT) break;
+      var limit = Math.max(rect.height, SUB.overMaxGrow(boxH, rect.maxHeight));
+      if (SUB.overFit(el.offsetHeight, limit, size, OVER_MIN_FONT) !== 'shrink') break;
       size -= 2;
     }
+    // Yumuşak giriş: ilk kare ölçüldükten sonra opaklık geçişi (eski WebView'da animasyon yerine geçiş).
+    el.style.webkitTransition = 'opacity 150ms ease-out';
+    el.style.transition = 'opacity 150ms ease-out';
+    setTimeout(function () { el.style.opacity = '1'; }, 16);
     return { el: el, rect: { left: rect.left, top: rect.top, width: rect.width, height: el.offsetHeight } };
+  }
+
+  // "beside": telefonun yanında sohbet paneli (başlıkta kişi adı, "them" solda, "me" sağda mavi). İngilizce gösterilmez.
+  // Taşarsa en eski mesajlar üstten atılır; en yeni görünür kalır.
+  function showBesideItem(host, item, box, width, height) {
+    var s = curSub();
+    var margin = Math.min(s.margin, Math.floor(width / 2) - 1);
+    var rect = SUB.besideRect(box, width, height, margin);
+    var msgs = SUB.besideMessages(item);
+    var el = document.createElement('div');
+    el.className = 'chat-panel';
+    el.style.left = rect.left + 'px';
+    el.style.top = rect.top + 'px';
+    el.style.width = rect.width + 'px';
+    el.style.maxHeight = rect.maxHeight + 'px';
+    el.style.fontSize = SUB.besideFontSize(height) + 'px';
+    var head = null;
+    var who = typeof item.speaker === 'string' ? item.speaker.replace(/^\s+|\s+$/g, '') : '';
+    if (who) {
+      head = document.createElement('div');
+      head.className = 'chat-head';
+      head.textContent = who;
+      el.appendChild(head);
+    }
+    var list = document.createElement('div');
+    list.className = 'chat-list';
+    var bubbles = [];
+    for (var i = 0; i < msgs.length; i++) {
+      var b = document.createElement('div');
+      b.className = 'chat-bubble chat-' + msgs[i].from;
+      b.textContent = msgs[i].text;
+      list.appendChild(b);
+      bubbles.push(b);
+    }
+    el.appendChild(list);
+    el.style.opacity = '0';
+    host.appendChild(el);
+    var heights = [];
+    for (var k = 0; k < bubbles.length; k++) heights.push(bubbles[k].offsetHeight);
+    var cs = window.getComputedStyle ? window.getComputedStyle(el) : null;
+    var pad = cs ? (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0) : 20;
+    var avail = rect.maxHeight - pad - (head ? head.offsetHeight + 6 : 0);
+    var first = SUB.besideFirstVisible(heights, 6, avail);
+    for (var j = 0; j < first; j++) bubbles[j].style.display = 'none';
+    el.style.webkitTransition = 'opacity 150ms ease-out';
+    el.style.transition = 'opacity 150ms ease-out';
+    setTimeout(function () { el.style.opacity = '1'; }, 16);
+    return el;
   }
 
   // Yalnız geliştirme önizlemesi (dev-preview ?demoInfo=1) için.
@@ -820,8 +897,32 @@
 
   // --- Sunucu bağlantısı (Server-Sent Events) ---
 
+  // Mac her 5 sn'de bir 'ping' olayı yollar; ölü (uykudan sonra sessiz kalan) akışı bundan anlarız.
+  var lastEventAt = 0;
+  var pingSeen = false;
+  var watchdog = null;
+  var STALE_MS = 20000;
+
+  function noteAlive(name) {
+    lastEventAt = Date.now();
+    if (name === 'ping') pingSeen = true;
+  }
+
+  function startWatchdog() {
+    if (watchdog !== null) return;
+    watchdog = setInterval(function () {
+      // Eski Mac ping yollamaz: ilk ping görülmeden bayatlık denetlenmez.
+      if (connState !== 'connected' || !pingSeen || !server) return;
+      if (Date.now() - lastEventAt <= STALE_MS) return;
+      diag.drops++;
+      renderDiag();
+      connect(server);
+    }, 5000);
+  }
+
   function onEvent(name, handler) {
     eventSource.addEventListener(name, function (e) {
+      noteAlive(name);
       var data;
       try {
         data = JSON.parse(e.data);
@@ -869,8 +970,12 @@
     }
     connState = 'connecting';
     renderConn();
+    lastEventAt = Date.now();
+    pingSeen = false;
+    startWatchdog();
     eventSource = new EventSource(address + '/events');
     eventSource.onopen = function () {
+      lastEventAt = Date.now();
       failures = 0;
       layoutRev = -1;
       reportLayout();
@@ -917,6 +1022,7 @@
     onEvent('screen', function (data) { showScreen(data.items, data.duration, data.region); });
     // screen-clear verisi boş/bozuk olabilir (eski Mac): o zaman hepsini temizle.
     eventSource.addEventListener('screen-clear', function (e) {
+      noteAlive('screen-clear');
       var region = null;
       try {
         var d = JSON.parse(e.data);
@@ -928,6 +1034,7 @@
     onEvent('layout', handleLayout);
     onEvent('speech', function (data) { if (data.url) playSpeech(server + data.url); });
     onEvent('speech-stop', stopSpeech);
+    onEvent('ping', function () {});
   }
 
   // --- Türkçe dublaj ---

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+using GameTranslator.App.Theme;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
@@ -41,7 +42,7 @@ public partial class TvStep : UserControl
         {
             var row = new Grid { Margin = new Thickness(0, 4, 0, 4) };
             row.Children.Add(new TextBlock { Text = $"{tv.Name} — {tv.Host}", VerticalAlignment = VerticalAlignment.Center });
-            var connect = new Button { Content = Localizer.Current["Connect"], Style = (Style)FindResource("PrimaryButton"), HorizontalAlignment = HorizontalAlignment.Right };
+            var connect = new Button { Content = BrandedText.Current["Connect"], Style = (Style)FindResource("PrimaryButton"), HorizontalAlignment = HorizontalAlignment.Right };
             connect.Click += async (_, _) => await PairAsync(tv);
             row.Children.Add(connect);
             Tvs.Children.Add(row);
@@ -63,11 +64,11 @@ public partial class TvStep : UserControl
         catch (SsapException error) when (error.Reason != "cannot connect")
         {
             // TV yanıt verdi ama reddetti ya da süre doldu: gerçek nedeni göster.
-            Error.Text = $"{Localizer.Current["The TV did not respond. Make sure it is on and on the same network."]} ({error.Reason})";
+            Error.Text = $"{BrandedText.Current["The TV did not respond. Make sure it is on and on the same network."]} ({error.Reason})";
         }
         catch (Exception)
         {
-            Error.Text = Localizer.Current["The TV did not respond. Make sure it is on and on the same network."];
+            Error.Text = BrandedText.Current["The TV did not respond. Make sure it is on and on the same network."];
         }
         Waiting.Visibility = Visibility.Collapsed;
         Tvs.IsEnabled = true;
@@ -78,5 +79,5 @@ public partial class TvStep : UserControl
     private async void OnAndroidTv(object sender, RoutedEventArgs e) => await PairAsync(new LgTv("Android TV", "", TvBrand.AndroidTv));
 
     private void OnGuide(object sender, RoutedEventArgs e) =>
-        Process.Start(new ProcessStartInfo("https://github.com/Sefflex/GameTranslate/blob/main/docs/tv-kurulum.md") { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/altyazi-koprusu/blob/main/docs/tv-kurulum.md") { UseShellExecute = true });
 }

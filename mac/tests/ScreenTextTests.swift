@@ -171,7 +171,14 @@ var tr3 = ScreenTracker()
 let ds = blk(.description, "Fill up on fuel or quickly service your vehicle.")
 _ = tr3.feed([ds], mode: .map, at: 0)
 expect(tr3.feed([ds], mode: .map, at: 1) == [.translate(ds)], "açıklama çevrilir")
-expect(tr3.feed([], mode: .game, at: 2) == [.clear(slot: "description", kind: .description)], "mod değişince açıklama hemen temizlenir")
+expect(tr3.feed([], mode: .game, at: 2).isEmpty, "mod 1 geçişte değişmez (titreme)")
+expect(tr3.feed([], mode: .game, at: 3) == [.clear(slot: "description", kind: .description)], "mod 2 ardışık geçişte değişince açıklama temizlenir")
+// game<->menu titremesi: tek geçişlik menü araya girerse görev hedefi silinmez
+var tr6 = ScreenTracker()
+let ob6 = blk(.objective, "Get in your car")
+_ = tr6.feed([ob6], mode: .game, at: 0); _ = tr6.feed([ob6], mode: .game, at: 1)
+expect(tr6.feed([ob6], mode: .menu, at: 2).isEmpty && tr6.feed([ob6], mode: .game, at: 3).isEmpty, "tek geçişlik menü araya girince hedef kalır")
+expect(tr6.feed([], mode: .menu, at: 4).isEmpty && tr6.feed([], mode: .menu, at: 5) == [.clear(slot: "objective", kind: .objective)], "menü 2 geçiş sürerse hedef temizlenir")
 // aynı türde iki yuva bağımsız
 var tr4 = ScreenTracker()
 let nb = blk(.notify, "Map updated", slot: "notify-top"), nm = blk(.notify, "Hey I'm at the bank.", slot: "notify-bottom")
@@ -187,6 +194,168 @@ expect(tr5.feed([p1], mode: .game, at: 1) == [.translate(p1)], "yarım bildirim 
 let a2 = tr5.feed([p2], mode: .game, at: 2), a3 = tr5.feed([p2], mode: .game, at: 3)
 expect((a2 + a3) == [.translate(p2)], "tamamlanan bildirim bir kez güncellenir: \(a2) \(a3)")
 expect(tr5.feed([p2], mode: .game, at: 4) == [], "tam metin tekrar gönderilmez")
+
+// ===== 1.7.0 =====
+// --- Telefon mesaj listesi (kare 0237 ve eğik tutulan 0243): mod phone, hiçbir şey çevrilmez
+let f237 = lines([psToast, (0.436, 0.201, 0.493, 0.223, 1.0, "Suggested"), (0.451, 0.244, 0.482, 0.267, 1.0, "Lucia"), (0.450, 0.268, 0.573, 0.303, 1.0, "Hey! Get this, Kat and..."),
+    (0.445, 0.319, 0.483, 0.343, 1.0, "Donnie"), (0.444, 0.342, 0.566, 0.381, 1.0, "SBW off Sunbelt High..."), (0.437, 0.394, 0.479, 0.423, 1.0, "Kenton"),
+    (0.437, 0.417, 0.558, 0.459, 1.0, "Still can't believe u fo..."), (0.393, 0.455, 0.447, 0.488, 1.0, "Messages"), (0.429, 0.509, 0.458, 0.530, 1.0, "Brian"),
+    (0.426, 0.531, 0.549, 0.578, 1.0, "Remember, you get y..."), (0.422, 0.587, 0.442, 0.607, 1.0, "Cal"), (0.419, 0.606, 0.541, 0.655, 1.0, "And 2 here. Have fun..."),
+    (0.920, 0.902, 0.959, 0.925, 1.0, "SELECT"), (0.930, 0.951, 0.961, 0.972, 1.0, "BACK")])
+let r237 = ScreenText.analyze(f237)
+expect(r237.mode == .phone && r237.blocks.isEmpty && r237.phone?.isList == true, "0237 telefon listesi: \(r237.mode) \(r237.blocks.map(\.text))")
+expect(r237.phone.map { $0.box.minX < 0.42 && $0.box.maxX > 0.55 && $0.box.minY < 0.21 && $0.box.maxY > 0.6 } == true, "0237 telefon kutusu: \(String(describing: r237.phone?.box))")
+let f243 = lines([psToast, (0.522, 0.578, 0.568, 0.597, 1.0, "€ Suggested"), (0.541, 0.607, 0.565, 0.620, 1.0, "Donnie"), (0.539, 0.617, 0.611, 0.642, 0.5, "SBW off Sunbelt High."),
+    (0.535, 0.649, 0.561, 0.661, 0.5, "Kenton"), (0.533, 0.660, 0.604, 0.684, 1.0, "Still can't believe u fo"), (0.505, 0.678, 0.540, 0.701, 1.0, "Messages"),
+    (0.526, 0.711, 0.545, 0.724, 1.0, "Lucia"), (0.524, 0.722, 0.601, 0.750, 1.0, "You wanna go we can ."), (0.519, 0.752, 0.539, 0.767, 1.0, "Brian"),
+    (0.517, 0.764, 0.595, 0.797, 1.0, "Remember, you get y..."), (0.513, 0.798, 0.526, 0.811, 1.0, "Cal"), (0.509, 0.811, 0.585, 0.840, 1.0, "And 2 here. Have fun."),
+    (0.505, 0.839, 0.572, 0.873, 1.0, "Chuck's Gun Shop"), (0.504, 0.857, 0.559, 0.884, 1.0, "Thanks Andrew."), (0.498, 0.887, 0.530, 0.911, 0.5, "BuckMe"),
+    (0.496, 0.902, 0.575, 0.940, 1.0, "Welcome to BuckMe,"), (0.920, 0.901, 0.961, 0.926, 1.0, "SELECT"), (0.930, 0.948, 0.978, 0.974, 1.0, "BACK O")])
+let r243 = ScreenText.analyze(f243)
+expect(r243.mode == .phone && r243.blocks.isEmpty && r243.phone?.isList == true, "0243 telefon listesi: \(r243.mode) \(r243.blocks.map(\.text))")
+// Aynı SELECT/BACK ile gerçek menü (0183) hâlâ menü
+expect(r183.mode == .menu && r183.phone == nil, "0183 hâlâ menü")
+
+// --- Açık konuşma: önce sentetik düzen, ardından gerçek kare 0238
+// (balonlar .phone bloğu)
+let convo = lines([(0.60, 0.20, 0.72, 0.23, 1.0, "Hey, you around"), (0.60, 0.23, 0.70, 0.26, 1.0, "later today?"),
+    (0.66, 0.34, 0.78, 0.37, 1.0, "Yeah, I can be there"), (0.66, 0.37, 0.76, 0.40, 1.0, "in ten minutes."),
+    (0.60, 0.48, 0.72, 0.51, 1.0, "Great, bring the car."), (0.66, 0.60, 0.78, 0.63, 1.0, "On my way now"), (0.930, 0.951, 0.961, 0.972, 1.0, "BACK")])
+let rc = ScreenText.analyze(convo)
+expect(rc.mode == .phone && rc.phone?.isList == false, "konuşma modu: \(rc.mode) \(String(describing: rc.phone))")
+expect(rc.blocks.count == 1 && rc.blocks[0].kind == .phone && rc.blocks[0].slot == "phone", "konuşma tek blok: \(rc.blocks.map(\.slot))")
+expect(rc.blocks.first?.messages.map(\.text) == ["Hey, you around later today?", "Yeah, I can be there in ten minutes.", "Great, bring the car.", "On my way now"], "konuşma balonları: \(rc.blocks.first?.messages.map(\.text) ?? [])")
+
+let f238 = lines([psToast, (0.487, 0.199, 0.517, 0.220, 1.0, "Lucia"), (0.424, 0.271, 0.491, 0.295, 1.0, "You got this!"), (0.451, 0.378, 0.527, 0.411, 1.0, "New message"),
+    (0.407, 0.430, 0.526, 0.472, 1.0, "Hey! Get this, Kat and"), (0.406, 0.458, 0.552, 0.505, 1.0, "Mattia are throwing a party"), (0.403, 0.483, 0.545, 0.529, 1.0, "on their YACHT!?! Said we"),
+    (0.402, 0.510, 0.546, 0.562, 1.0, "could meet up at the Rusty"), (0.399, 0.542, 0.527, 0.587, 1.0, "and go from there. That"), (0.397, 0.574, 0.426, 0.592, 1.0, "cool?"),
+    (0.434, 0.634, 0.539, 0.677, 1.0, "Yeah, sure. I wanna"), (0.429, 0.665, 0.516, 0.707, 1.0, "see this dinghy."), (0.420, 0.719, 0.515, 0.763, 1.0, "You wanna go we"), (0.417, 0.752, 0.458, 0.778, 1.0, "can go."),
+    (0.919, 0.853, 0.959, 0.876, 1.0, "SCROLL"), (0.930, 0.901, 0.959, 0.926, 1.0, "SEND"), (0.930, 0.951, 0.961, 0.972, 1.0, "BACK")])
+let r238 = ScreenText.analyze(f238)
+let m238 = r238.blocks.first?.messages ?? []
+expect(r238.mode == .phone && r238.phone?.isList == false && r238.blocks.count == 1 && r238.blocks[0].kind == .phone && m238.count == 3, "0238 konuşma: \(m238.map(\.text))")
+expect(m238.first?.text == "You got this!" && r238.blocks.first?.speaker == "Lucia" && m238[1].text.hasPrefix("Hey! Get this, Kat and Mattia are throwing a party") && m238[1].text.hasSuffix("That cool?"), "0238 metinler/gönderen: \(m238.map(\.text))")
+
+// --- 1.7.3 sohbet paneli: canlı GTA 6 geometrisi (kutu ≈ 0.450,0.122 0.247x0.613); sentetik satırlar
+// Linda'nın iki mesajı solda, oyuncunun yanıtları sağa yaslı.
+let liveRows: [Row] = [(0.490, 0.140, 0.540, 0.163, 1.0, "Linda"),
+    (0.466, 0.200, 0.560, 0.224, 1.0, "As long as you pay"), (0.466, 0.224, 0.540, 0.248, 1.0, "your rent. L."),
+    (0.466, 0.300, 0.570, 0.324, 1.0, "See me ASAP to"), (0.466, 0.324, 0.560, 0.348, 1.0, "discuss. L."),
+    (0.545, 0.410, 0.676, 0.434, 1.0, "Okay. Thanks."),
+    (0.466, 0.490, 0.570, 0.514, 1.0, "Rent. Remember it."), (0.466, 0.514, 0.570, 0.538, 1.0, "Have a nice day. L."),
+    (0.540, 0.610, 0.676, 0.634, 1.0, "Yeah I haven't"), (0.540, 0.634, 0.620, 0.658, 1.0, "forgotten."), (0.930, 0.951, 0.961, 0.972, 1.0, "BACK")]
+let rl = ScreenText.analyze(lines(liveRows))
+expect(rl.mode == .phone && rl.phone?.isList == false && rl.blocks.count == 1 && rl.blocks[0].slot == "phone", "canlı: tek blok \(rl.blocks.map(\.slot)) \(rl.mode)")
+let ml = rl.blocks.first?.messages ?? []
+expect(ml.map(\.text) == ["As long as you pay your rent. L.", "See me ASAP to discuss. L.", "Okay. Thanks.", "Rent. Remember it. Have a nice day. L.", "Yeah I haven't forgotten."], "canlı metinler: \(ml.map(\.text))")
+expect(ml.map(\.fromMe) == [false, false, true, false, true], "canlı taraflar: \(ml.map(\.fromMe))")
+expect(rl.blocks.first?.speaker == "Linda", "canlı kişi adı: \(String(describing: rl.blocks.first?.speaker))")
+expect(rl.blocks.first?.text == ml.map(\.text).joined(separator: "\n"), "canlı blok metni")
+// --- 1.7.4: balon rengi (mavi = oyuncu). Kare 0238'de son seçenek balonunun merkezi telefon merkezinin SOLUNDA: konum kuralı yanılır.
+let r238c = ScreenText.analyze(f238, bubbleBlue: { $0.minY >= 0.62 })
+let m238c = r238c.blocks.first?.messages ?? []
+expect(m238c.map(\.fromMe) == [false, false, true, true] && m238c.count == 4, "0238 renkli: \(m238c.map { "\($0.fromMe):\($0.text)" })")
+expect(m238c.map(\.text) == ["You got this!", "Hey! Get this, Kat and Mattia are throwing a party on their YACHT!?! Said we could meet up at the Rusty and go from there. That cool?", "Yeah, sure. I wanna see this dinghy.", "You wanna go we can go."], "0238 renkli metinler: \(m238c.map(\.text))")
+expect(r238c.blocks.first?.speaker == "Lucia" && !m238c.contains { $0.text.lowercased().contains("new message") || $0.text == "Lucia" }, "başlık adı ve 'New message' mesaj olmaz")
+// İpucu yok / closure nil döndürür -> eski konum kuralı (üç mesaj, son birleşik balon konumla karşı tarafa düşer)
+let m238n = ScreenText.analyze(f238, bubbleBlue: { _ in nil }).blocks.first?.messages ?? []
+expect(m238n == m238, "ipucu yoksa eski davranış: \(m238n.map(\.text))")
+expect(ScreenText.analyze(lines(liveRows), bubbleBlue: { _ in nil }).blocks.first?.messages.map(\.fromMe) == [false, false, true, false, true], "ipucu nil: konum kuralı")
+// ScreenLine.blueBubble alanı varsayılan nil
+expect(ScreenLine(text: "x", rect: .zero).blueBubble == nil, "blueBubble varsayılan nil")
+
+// Taraf kuralı birimi
+let pbox = CGRect(x: 0.450, y: 0.122, width: 0.247, height: 0.613)
+expect(!ScreenText.isMine(CGRect(x: 0.47, y: 0.3, width: 0.10, height: 0.05), in: pbox), "sol balon them")
+expect(ScreenText.isMine(CGRect(x: 0.58, y: 0.3, width: 0.09, height: 0.05), in: pbox), "sağa yaslı balon me")
+expect(!ScreenText.isMine(CGRect(x: 0.50, y: 0.3, width: 0.10, height: 0.05), in: pbox), "ortada/soldan balon them")
+
+// --- Tek yuva izleyici: yeni mesaj gelince yeniden gönderilir, OCR titremesinde gönderilmez
+func phoneBlock(_ msgs: [(Bool, String)]) -> ScreenBlock {
+    let m = msgs.map { PhoneMessage(fromMe: $0.0, text: $0.1) }
+    return ScreenBlock(kind: .phone, text: m.map(\.text).joined(separator: "\n"), title: nil, speaker: "Linda", box: pbox, lineHeight: 0.024, slot: "phone", messages: m)
+}
+var trp = ScreenTracker()
+let base: [(Bool, String)] = [(false, "As long as you pay your rent. L."), (false, "See me ASAP to discuss. L."), (true, "Okay. Thanks.")]
+let pb1 = phoneBlock(base)
+expect(trp.feed([pb1], mode: .phone, at: 0) == [], "telefon: ilk geçiş beklenir")
+let pa = trp.feed([pb1], mode: .phone, at: 1)
+expect(pa == [.translate(pb1)], "telefon: ilk gönderim \(pa)")
+expect(trp.feed([pb1], mode: .phone, at: 3) == [], "telefon: aynı sohbet tekrar gönderilmez")
+var jitter = base; jitter[1].1 = "See me ASAP to discuss. L"
+expect(trp.feed([phoneBlock(jitter)], mode: .phone, at: 4) == [] && trp.feed([phoneBlock(jitter)], mode: .phone, at: 5) == [], "telefon: OCR titremesi gönderilmez")
+let pb2 = phoneBlock(base + [(false, "Rent. Remember it. Have a nice day. L.")])
+let pa2 = trp.feed([pb2], mode: .phone, at: 6) + trp.feed([pb2], mode: .phone, at: 7)
+expect(pa2 == [.translate(pb2)], "telefon: yeni mesaj bir kez gönderilir \(pa2.count)")
+let pb3 = phoneBlock(base + [(false, "Rent. Remember it. Have a nice day. L."), (true, "Ok.")])
+let pa3 = trp.feed([pb3], mode: .phone, at: 8) + trp.feed([pb3], mode: .phone, at: 9)
+expect(pa3 == [.translate(pb3)], "telefon: çok kısa yeni mesaj da gönderilir \(pa3.count)")
+expect(trp.feed([], mode: .phone, at: 20) == [] && trp.feed([], mode: .phone, at: 22.5) == [.clear(slot: "phone", kind: .phone)], "telefon: kapanınca temizlenir")
+
+// --- Salt ad/etiket çevrilmez (kare 0092); hedefler geçer
+expect(ScreenText.analyze(lines([psToast, (0.033, 0.183, 0.164, 0.215, 1.0, "Key Lento Coffee Morning")])).blocks.isEmpty, "0092 ad/etiket çevrilmez")
+expect(ScreenText.analyze(lines([(0.400, 0.946, 0.600, 0.977, 1.0, "Get in your car")])).blocks.first?.kind == .objective, "hedef: Get in your car")
+expect(ScreenText.analyze(lines([(0.350, 0.946, 0.650, 0.977, 1.0, "Take Lucia to the community center")])).blocks.first?.kind == .objective, "hedef: Take Lucia ...")
+expect(InfoBox.isNameLabel("Key Lento Coffee Morning") && !InfoBox.isNameLabel("Get in your car") && !InfoBox.isNameLabel("Map updated") && !InfoBox.isNameLabel("Call Joey from your Contacts or check it."), "isNameLabel")
+expect(InfoBox.stripLeadingIcon("$ No goods to sell") == "No goods to sell" && InfoBox.stripLeadingIcon("i Hello there") == "Hello there" && InfoBox.stripLeadingIcon("I think so") == "I think so" && InfoBox.stripLeadingIcon("Hello") == "Hello", "stripLeadingIcon")
+
+// --- Harita açıklaması: simge atılır, başlık ve gövde ayrı parça (kare 0117, 0122)
+let mapPrompts: [Row] = [(0.905, 0.757, 0.961, 0.781, 1.0, "RECENTER"), (0.891, 0.852, 0.961, 0.879, 1.0, "ADD MARKER"), (0.894, 0.951, 0.959, 0.974, 1.0, "CLOSE MENU")]
+let r117 = ScreenText.analyze(lines([psToast, (0.576, 0.341, 0.693, 0.370, 1.0, "DONNIE'S TRAILER"), (0.551, 0.395, 0.676, 0.424, 1.0, "$ No goods to sell"),
+    (0.547, 0.439, 0.762, 0.465, 1.0, "Donnie will pay for any narcotics,"), (0.544, 0.475, 0.792, 0.504, 1.0, "jewelry and marked bills dropped off"), (0.546, 0.511, 0.629, 0.538, 1.0, "at his trailer.")] + mapPrompts))
+expect(r117.blocks.first?.text == "No goods to sell\nDonnie will pay for any narcotics, jewelry and marked bills dropped off at his trailer.", "0117 parçalar: \(r117.blocks.map(\.text))")
+let r122 = ScreenText.analyze(lines([psToast, (0.576, 0.341, 0.718, 0.372, 1.0, "SAVE FOR THE FUTURE"), (0.567, 0.398, 0.769, 0.426, 1.0, "Family Savings will earn interest"),
+    (0.547, 0.439, 0.770, 0.468, 1.0, "You are Buckin' Broke. Your family"), (0.546, 0.471, 0.766, 0.507, 1.0, "needs savings for a better future."), (0.547, 0.512, 0.767, 0.540, 1.0, "Contribute to your BuckMe Family"),
+    (0.546, 0.541, 0.783, 0.578, 1.0, "Savings account and reach the first"), (0.546, 0.581, 0.640, 0.607, 1.0, "milestone.")] + mapPrompts))
+expect(r122.blocks.first?.text.hasPrefix("Family Savings will earn interest\nYou are Buckin' Broke.") == true, "0122 parçalar: \(r122.blocks.map(\.text))")
+for (sym, w) in [("$", "Hello"), ("€", "Hello"), ("©", "Hello"), ("®", "Hello"), ("i", "Hello")] { expect(InfoBox.stripLeadingIcon("\(sym) \(w) world") == "\(w) world", "simge \(sym)") }
+
+// --- Altyazı denetimi (DialogueGate), kare 0084 (iki satır) ve sızıntılar
+let f84: [ScreenLine] = lines([(0.020, 0.829, 0.061, 0.853, 1.0, "0.15 mi"), (0.243, 0.828, 0.757, 0.877, 1.0, "Don't wanna ask and then have to say no 'cause of some case"),
+    (0.436, 0.884, 0.565, 0.915, 1.0, "officer bullshit."), (0.923, 0.894, 0.985, 0.931, 1.0, "THROW O"), (0.907, 0.948, 0.980, 0.977, 1.0, "PUT AWAY")])
+let g84 = DialogueGate.evaluate(Array(f84[1...2]), exclude: [])
+expect(g84.kept == [0, 1], "0084 iki satır korunur")
+let leak = lines([(0.404, 0.763, 0.531, 0.820, 1.0, "Welcome to BuckMe, ..."), (0.790, 0.800, 0.980, 0.830, 1.0, "Hey! Ge are thro"), (0.412, 0.884, 0.592, 0.917, 1.0, "Yeah, well, you know..."),
+    (0.470, 0.850, 0.530, 0.880, 1.0, "Hey! Get this, Kat and..."), (0.470, 0.850, 0.640, 0.880, 1.0, "Look at this mess")])
+expect(DialogueGate.reason(for: leak[0], exclude: []) == .ellipsisPreview, "kesik önizleme (virgül + ...)")
+expect(DialogueGate.reason(for: leak[1], exclude: [CGRect(x: 0.79, y: 0.80, width: 0.19, height: 0.17)]) == .insideExcluded, "bildirim kartı içi")
+expect(DialogueGate.reason(for: leak[1], exclude: []) == .offCenter, "ortalanmamış")
+expect(DialogueGate.reason(for: leak[2], exclude: []) == nil, "gerçek '...' diyalogu korunur")
+expect(DialogueGate.reason(for: leak[3], exclude: []) == .ellipsisPreview, "dar '...' önizleme")
+expect(DialogueGate.reason(for: leak[4], exclude: [CGRect(x: 0.40, y: 0.20, width: 0.2, height: 0.7)]) == .insideExcluded, "telefon alanı içi")
+expect(DialogueGate.reason(for: ScreenLine(text: "A very long line that spans wide of the screen", rect: CGRect(x: 0.05, y: 0.85, width: 0.5, height: 0.03)), exclude: []) == nil, "geniş satır merkez dışı olsa da geçer")
+
+// --- Çapraz doğrulama: kırpma çöp/eksik okuduğunda tam kare metni
+let full84 = f84 + [ScreenLine(text: "A Uzaktan Oynama baglandi.", rect: CGRect(x: 0.411, y: 0.047, width: 0.178, height: 0.028), confidence: 0.5)]
+let cc = DialogueGate.crossCheck(cropText: "Sh, Don't wanna ask and then have to say no cause of some case officer bullshit", screen: full84, exclude: [])
+expect(cc?.text == "Don't wanna ask and then have to say no 'cause of some case officer bullshit.", "çapraz doğrulama: \(cc?.text ?? "nil")")
+expect(cc.map { $0.rect.minY < 0.83 && $0.rect.maxY > 0.91 } == true, "çapraz doğrulama kutusu iki satırı kapsar")
+expect(DialogueGate.crossCheck(cropText: "Completely unrelated words appear in the crop text now", screen: full84, exclude: []) == nil, "benzemeyen metin kullanılmaz")
+expect(DialogueGate.crossCheck(cropText: "Don't wanna ask and then have to say no", screen: full84, exclude: [CGRect(x: 0, y: 0.7, width: 1, height: 0.25)]) == nil, "dışlanan alandaki tam kare satırı kullanılmaz")
+
+// --- İzleyici: sondaki sözcük titremesi (1.7.1)
+do {
+    func nb(_ t: String) -> ScreenBlock { ScreenBlock(kind: .notify, text: t, title: nil, speaker: nil, box: .zero, lineHeight: 0.02, slot: "notify-bottom") }
+    var tr = ScreenTracker()
+    let full = nb("SBW off Sunbelt Highway cmon"), short = nb("SBW off Sunbelt Highway")
+    var sends = 0
+    func f(_ b: ScreenBlock, _ t: Double) { for a in tr.feed([b], mode: .game, at: t) { if case .translate = a { sends += 1 } } }
+    f(short, 0); f(short, 1)
+    expect(sends == 1, "ilk gönderim: \(sends)")
+    f(full, 2); f(full, 3)      // 5 karakter uzadı: yeniden gönderilir
+    expect(sends == 2, "uzayınca yeniden: \(sends)")
+    for i in 0..<6 { f(i % 2 == 0 ? short : full, 4 + Double(i)) }
+    expect(sends == 2, "titreme yeniden göndermemeli: \(sends)")
+    var tr2 = ScreenTracker()
+    var s2 = 0
+    func g(_ b: ScreenBlock, _ t: Double) { for a in tr2.feed([b], mode: .game, at: t) { if case .translate = a { s2 += 1 } } }
+    g(full, 0); g(full, 1); g(short, 2); g(short, 3)
+    expect(s2 == 1, "sondaki sözcük düşünce yeniden gönderme yok: \(s2)")
+    expect(tr2.currentMode == .game, "currentMode game")
+    var tr3 = ScreenTracker()
+    _ = tr3.feed([], mode: .menu, at: 0); _ = tr3.feed([], mode: .menu, at: 1)
+    expect(tr3.currentMode == .menu, "currentMode menu onaylandı")
+}
 
 print("\(total - failures)/\(total) test geçti")
 exit(failures == 0 ? 0 : 1)

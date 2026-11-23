@@ -4,13 +4,13 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <Version>1.5.0</Version>
-    <AssemblyVersion>1.5.0.0</AssemblyVersion>
-    <FileVersion>1.5.0.0</FileVersion>
-    <Company>Sefflex</Company>
-    <Authors>Sefflex</Authors>
-    <Product>GameTranslator</Product>
-    <Copyright>Telif Hakkı © 2026 Sefflex. AGPL-3.0. Uses chiaki-ng (AGPL-3.0).</Copyright>
+    <Version>1.7.4</Version>
+    <AssemblyVersion>1.7.4.0</AssemblyVersion>
+    <FileVersion>1.7.4.0</FileVersion>
+    <Company>Ludora</Company>
+    <Authors>Ludora</Authors>
+    <Product>Ludora</Product>
+    <Copyright>© 2026 Ludora</Copyright>
     <!-- WPF projesi Mac'te de derlenebilsin (çalıştırmak için Windows gerekir). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>

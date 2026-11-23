@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+using GameTranslator.App.Theme;
 using System.Windows;
 using System.Windows.Controls;
 using GameTranslator.Core;
@@ -19,7 +20,7 @@ public partial class PsnLoginStep : UserControl
 
     private void Refresh()
     {
-        SignIn.Content = Localizer.Current[Controller.HasAccount ? "Sign in again" : "Sign in"];
+        SignIn.Content = BrandedText.Current[Controller.HasAccount ? "Sign in again" : "Sign in"];
         SignIn.Style = (Style)FindResource(Controller.HasAccount ? "SecondaryButton" : "PrimaryButton");
     }
 
@@ -35,7 +36,7 @@ public partial class PsnLoginStep : UserControl
         }
         catch (Exception error)
         {
-            Error.Text = error is AppException ? error.Message : AppException.Describe(AppError.InvalidLogin, Localizer.Current);
+            Error.Text = error is AppException ? error.Message : Branding.Fix(AppException.Describe(AppError.InvalidLogin, Localizer.Current));
         }
         SignIn.IsEnabled = true;
         Refresh();

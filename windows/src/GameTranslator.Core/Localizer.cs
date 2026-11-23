@@ -28,11 +28,11 @@ public sealed class Localizer
         Brand(Catalog.Value.TryGetValue(key, out var values) && values.TryGetValue(language, out var value) ? value : key, language);
 
     /// <summary>Kullanıcıya görünen ürün adı.</summary>
-    public const string ProductName = "Altyazı Köprüsü";
+    public const string ProductName = "Ludora";
 
     /// <summary>
     /// Ortak (Mac ile paylaşılan) metin kataloğundaki eski "GameTranslator" adı ürün adıyla değiştirilir; anahtarlar
-    /// değişmez. Türkçe ekler ünlü uyumuna göre düzeltilir ("GameTranslator'ı" → "Altyazı Köprüsü'nü"). Dosya adları
+    /// değişmez. Türkçe ekler ünlü uyumuna göre düzeltilir ("GameTranslator'ı" → "Ludora'yı"). Dosya adları
     /// ("GameTranslator-windows-x64.zip") ve ad alanları korunur.
     /// </summary>
     internal static string Brand(string value, string language)
@@ -44,12 +44,12 @@ public sealed class Localizer
             if (suffix.Length == 0 || language != "tr") return ProductName + suffix;
             return ProductName + suffix switch
             {
-                "'ı" or "'i" => "'nü",
-                "'a" or "'e" => "'ne",
-                "'da" or "'de" => "'nde",
-                "'dan" or "'den" => "'nden",
-                "'ın" or "'in" or "'nın" or "'nin" => "'nün",
-                "'la" or "'le" => "'yle",
+                "'ı" or "'i" or "'u" or "'ü" => "'yı",
+                "'a" or "'e" => "'ya",
+                "'da" or "'de" or "'ta" or "'te" => "'da",
+                "'dan" or "'den" or "'tan" or "'ten" => "'dan",
+                "'ın" or "'in" or "'un" or "'ün" or "'nın" or "'nin" or "'nun" or "'nün" => "'nın",
+                "'la" or "'le" => "'yla",
                 _ => suffix,
             };
         });

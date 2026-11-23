@@ -12,7 +12,7 @@ namespace GameTranslator.App.Theme;
 [MarkupExtensionReturnType(typeof(string))]
 public sealed class T(string key) : MarkupExtension
 {
-    public override object ProvideValue(IServiceProvider serviceProvider) => Localizer.Current[key];
+    public override object ProvideValue(IServiceProvider serviceProvider) => Branding.Fix(Localizer.Current[key]);
 }
 
 /// <summary>true → görünür; <c>ConverterParameter=invert</c> ile tersi.</summary>

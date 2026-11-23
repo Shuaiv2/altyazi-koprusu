@@ -299,6 +299,8 @@ public sealed class CommunityPatchManager
     /// </summary>
     public async Task<(bool Success, string Message)> UpdateFromRemoteRepoAsync()
     {
+        return (false, "Uzak yama indirme kapalı.");
+#pragma warning disable CS0162
         int updated = 0;
         try
         {
@@ -319,10 +321,10 @@ public sealed class CommunityPatchManager
                 "yamalar/watch-dogs.json"
             };
 
-            var baseUrls = new[]
+            var baseUrls = Array.Empty<string>();
+            var _unused = new string[]
             {
-                "https://gitlab.com/sefflex/GameTranslator/-/raw/main/",
-                "https://raw.githubusercontent.com/Sefflex/GameTranslate/main/"
+                
             };
 
             foreach (var relPath in knownRemoteFiles)

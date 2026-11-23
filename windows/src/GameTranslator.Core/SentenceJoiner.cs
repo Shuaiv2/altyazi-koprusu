@@ -28,6 +28,28 @@ public sealed partial class SentenceJoiner
     public Result Feed(string raw, double time)
     {
         var line = raw.Trim();
+        if (fragments.Count > 0 && time - lastTime <= MaxGap)
+        {
+            var acc = Norm(Join(fragments));
+            var n = Norm(line);
+            // Yeni okuma zaten birikmiş cümlenin içinde: yeni bir şey yok, tekrar eklenmez.
+            if (Significant(n) && Contained(n, acc))
+            {
+                lastTime = time;
+                var src = fragments.Count > 1 ? Join(fragments) : StripDash(fragments[0]);
+                return new Result(src, fragments.Count > 1, false);
+            }
+            // Yeni okuma bir öncekinin üst kümesi (aynı satırın daha eksiksiz okunuşu): eklemek yerine değiştir.
+            var last = Norm(fragments[^1]);
+            if (last.Length > 0 && n.Length > last.Length
+                && (Contained(last, n) || TextMatch.IsSimilar(n[..last.Length], last, 0.85)))
+            {
+                fragments[^1] = line;
+                lastTime = time;
+                var src = fragments.Count > 1 ? Join(fragments) : StripDash(line);
+                return new Result(src, fragments.Count > 1, false);
+            }
+        }
         var continues = fragments.Count > 0
             && time - lastTime <= MaxGap
             && IsOpen(fragments[^1])
@@ -82,17 +104,57 @@ public sealed partial class SentenceJoiner
 
     internal static string StripDash(string s) => s.StartsWith("- ", StringComparison.Ordinal) ? s[2..] : s;
 
+    /// <summary>Tekrar denetimine girecek kadar uzun mu (≥3 sözcük): kısa parçalar ('well', 'oh') başka yerde geçse de tekrar sayılmaz.</summary>
+    internal static bool Significant(string n) => n.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length >= 3;
+
+    internal static string Norm(string s) => TextMatch.Normalize(s);
+
+    /// <summary><paramref name="a"/> (sadeleştirilmiş), <paramref name="b"/> içinde geçiyor mu: tam geçiş ya da sözcük penceresinde ≥0.85 benzerlik.</summary>
+    internal static bool Contained(string a, string b)
+    {
+        if (a.Length == 0) return true;
+        if (b.Contains(a, StringComparison.Ordinal)) return true;
+        var aw = a.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var bw = b.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (aw.Length < 2 || bw.Length < aw.Length) return false;
+        for (var start = 0; start <= bw.Length - aw.Length; start++)
+        {
+            var win = string.Join(' ', bw.Skip(start).Take(aw.Length));
+            if (TextMatch.IsSimilar(win, a, 0.85)) return true;
+        }
+        return false;
+    }
+
     internal static string Join(IReadOnlyList<string> parts)
     {
         var o = StripDash(parts[0]).Trim(' ', '\t');
         foreach (var p in parts.Skip(1))
         {
-            var next = p.Trim(' ', '\t').TrimStart('.', '…').Trim(' ', '\t');
+            var next = p.Trim(' ', '\t');
+            // Zaten birikmiş cümlede geçen parça tekrar eklenmez.
+            if (Significant(Norm(next)) && Contained(Norm(next), Norm(o))) continue;
+            next = next.TrimStart('.', '…').Trim(' ', '\t');
+            // Ekranda önceki satırın son sözcükleri yeni parçanın başında yeniden okunduysa (≥2 sözcük) çakışma atılır.
+            var outTok = o.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(Norm).Where(t => t.Length > 0).ToList();
+            var nextTok = next.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToList();
+            var nn = nextTok.Select(Norm).ToList();
+            var k = Math.Min(outTok.Count, nn.Count);
+            while (k >= 2)
+            {
+                if (outTok.Skip(outTok.Count - k).SequenceEqual(nn.Take(k)))
+                {
+                    nextTok.RemoveRange(0, k);
+                    next = string.Join(' ', nextTok);
+                    break;
+                }
+                k--;
+            }
+            if (next.Length == 0) continue;
             var sep = " ";
             if (o.EndsWith("...", StringComparison.Ordinal) || o.EndsWith('…'))
             {
                 o = o[..^(o.EndsWith('…') ? 1 : 3)].Trim(' ', '\t');
-                if (next.Length > 0 && char.IsUpper(next[0])) sep = ", ";
+                if (char.IsUpper(next[0])) sep = ", ";
             }
             o += sep + next;
         }

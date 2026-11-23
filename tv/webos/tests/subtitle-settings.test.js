@@ -216,6 +216,22 @@
   var two = S.stackRects([{ left: 720, top: 1022, width: 480, height: 40 }, { left: 1050, top: 520, width: 487, height: 100 }], 8);
   eq(two[0].top, 1022, 'over kutusu itilmez'); eq(two[1].top, 520, 'ikinci de yerinde');
 
+  // --- over teması / konuşmacı / sığdırma ---
+  eq(S.overTheme({ theme: 'light' }), 'light', 'tema light'); eq(S.overTheme({ theme: 'dark' }), 'dark', 'tema dark');
+  eq(S.overTheme({}), 'dark', 'tema yoksa koyu'); eq(S.overTheme({ theme: 'x' }), 'dark', 'geçersiz tema koyu'); eq(S.overTheme(null), 'dark', 'null koyu');
+  var lc = S.overCardStyle('light', 0), dc = S.overCardStyle('dark', 0);
+  eq(lc.color, '#15161a', 'açık kart yazı rengi'); eq(dc.color, '#ffffff', 'koyu kart yazı rengi');
+  ok(lc.background.indexOf('rgba(246, 246, 248') === 0 && dc.background.indexOf('rgba(14, 14, 18') === 0, 'kart zeminleri');
+  ok(lc.alpha >= 0.92 && dc.alpha >= 0.92, 'bgOpacity 0 olsa da alfa >= 0.92');
+  eq(S.overCardStyle('dark', 100).alpha, 1, 'yüksek ayar alfayı artırır'); eq(S.overCardStyle('light', 10).alpha, 0.98, 'açık alfa 0.98');
+  var pa = S.overParts({ speaker: ' Lucia ', text: 'Selam\nnaber' });
+  eq(pa.speaker, 'Lucia', 'konuşmacı kırpılır'); eq(pa.segments.length, 2, '\\n parçalar'); ok(!pa.titleBold, 'konuşmacı varken başlık kalın değil');
+  var pd = S.overParts({ text: 'Başlık\n\nGövde metni' });
+  eq(pd.segments.length, 2, 'boş parça atılır'); ok(pd.titleBold, 'açıklamada ilk parça kalın'); eq(pd.speaker, '', 'konuşmacı yok');
+  ok(!S.overParts({ text: 'Tek satır' }).titleBold, 'tek parça kalın değil');
+  eq(S.overMaxGrow(100, 5000), 160, '1.6 kat büyüme sınırı'); eq(S.overMaxGrow(100, 120), 120, 'ekran sınırı daha küçükse o');
+  eq(S.overFit(150, 160, 30, 18), 'ok', 'sığdı'); eq(S.overFit(200, 160, 30, 18), 'shrink', 'küçült'); eq(S.overFit(200, 160, 18, 18), 'min', 'en küçük boy');
+
   // --- stackRects ---
   var inR = [{ left: 100, top: 100, width: 300, height: 80 }, { left: 150, top: 120, width: 300, height: 60 }, { left: 800, top: 100, width: 200, height: 50 }, { left: 120, top: 400, width: 200, height: 40 }];
   var st = S.stackRects(inR, 10);

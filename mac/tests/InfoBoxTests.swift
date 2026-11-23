@@ -155,6 +155,19 @@ for (a, b) in [("He got canned yesterday.", "He got fired yesterday."), ("Don't 
     expect(GameEnglish.plain(a) == b, "\(a) -> \(GameEnglish.plain(a))")
 }
 
+// Düğme simgesi artıkları (1.7.1)
+func r(_ s: String) -> String { GlyphNormalizer.stripIconRemnants(s) }
+expect(r("Keep cash safe by storing it in your stash a or by depositing it into BuckMe at an ATM IP,") == "Keep cash safe by storing it in your stash or by depositing it into BuckMe at an ATM", "artık: stash a / ATM IP,: \(r("Keep cash safe by storing it in your stash a or by depositing it into BuckMe at an ATM IP,"))")
+expect(r("Incapacitations will increase your focus bar o depending on your criminal profile.") == "Incapacitations will increase your focus bar depending on your criminal profile.", "artık: bar o")
+expect(r("Press © to open @ the • map") == "Press to open the map", "artık: © @ •")
+expect(r("Grab a car and go") == "Grab a car and go", "olumsuz: a car")
+expect(r("I am at the Plan A.") == "I am at the Plan A.", "olumsuz: Plan A.")
+expect(r("Meet at Gate B") == "Meet at Gate B", "olumsuz: Gate B")
+expect(r("Use the ATM.") == "Use the ATM.", "olumsuz: ATM.")
+expect(r("Buy a gun, a car") == "Buy a gun, a car", "olumsuz: a gun, a car")
+expect(r("Plan A.") == "Plan A.", "olumsuz: Plan A. tek")
+expect(r("Rob the store a") == "Rob the store", "sondaki a")
+
 print("\(total - failures)/\(total) test geçti")
 exit(failures == 0 ? 0 : 1)
 }

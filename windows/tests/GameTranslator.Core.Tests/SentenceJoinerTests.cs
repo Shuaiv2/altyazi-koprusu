@@ -116,4 +116,34 @@ public class SentenceJoinerTests
         var r = j.Feed(new string('y', 100) + ",", 1);
         Assert.True(r.Source.Length <= 220);
     }
+
+    [Fact]
+    public void SupersetReplacesAndSubsetIgnored()
+    {
+        var j = new SentenceJoiner();
+        j.Feed("They should check with Brian or Bonnie,", 0);
+        var r = j.Feed("They should check with Brian or Bonnie, and", 1);
+        Assert.Equal("They should check with Brian or Bonnie, and", r.Source);
+        r = j.Feed("they should check with Brian or Bonnie,", 2);
+        Assert.Equal("They should check with Brian or Bonnie, and", r.Source);
+    }
+
+    [Fact]
+    public void SameReadTwiceIsNotContinuation()
+    {
+        var j = new SentenceJoiner();
+        j.Feed("Welcome to BuckMe,", 0);
+        var r = j.Feed("Welcome to BuckMe,", 1);
+        Assert.Equal("Welcome to BuckMe,", r.Source);
+        Assert.False(r.IsContinuation);
+    }
+
+    [Fact]
+    public void OverlapIsTrimmedNotDuplicated()
+    {
+        var j = new SentenceJoiner();
+        j.Feed("We should probably go see the boss...", 0);
+        var r = j.Feed("see the boss and tell him now.", 1);
+        Assert.Equal(1, r.Source.Split("see the boss").Length - 1);
+    }
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+using GameTranslator.App.Theme;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
@@ -36,7 +37,7 @@ public partial class SettingsWindow : Window
         Bold.IsChecked = settings.Style.Bold;
         // Yalnız çeviri modeli olan diller listelenir; tek dil varsa seçim gösterilmez.
         foreach (var (code, name) in Languages.Where(l => controller.SupportsLanguage(l.Code)))
-            GameLanguage.Items.Add(new ComboBoxItem { Content = Localizer.Current[name], Tag = code, IsSelected = code == settings.SourceLanguage });
+            GameLanguage.Items.Add(new ComboBoxItem { Content = BrandedText.Current[name], Tag = code, IsSelected = code == settings.SourceLanguage });
         LanguageCard.Visibility = GameLanguage.Items.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
         (settings.FreeAreaTarget switch { ResultTarget.Pc => FreePc, ResultTarget.Both => FreeBoth, _ => FreeTv }).IsChecked = true;
         Region.Frame = controller.LastFrame;
@@ -67,11 +68,11 @@ public partial class SettingsWindow : Window
         DeepLStatus.Visibility = Visibility.Visible;
         DeepLStatus.Text = check.State switch
         {
-            OnlineKeyState.Valid => Localizer.Current.Format("This month: %1$@ of %2$@ characters used.",
+            OnlineKeyState.Valid => BrandedText.Current.Format("This month: %1$@ of %2$@ characters used.",
                 check.Used.ToString("N0"), check.Limit.ToString("N0")),
-            OnlineKeyState.QuotaExceeded => Localizer.Current["This month's DeepL limit is used up. Until it renews, the translation model on this computer translates."],
-            OnlineKeyState.Invalid => Localizer.Current["DeepL did not accept this key. Copy it again from your DeepL account page."],
-            _ => Localizer.Current["DeepL could not be reached. Check your internet connection."],
+            OnlineKeyState.QuotaExceeded => BrandedText.Current["This month's DeepL limit is used up. Until it renews, the translation model on this computer translates."],
+            OnlineKeyState.Invalid => BrandedText.Current["DeepL did not accept this key. Copy it again from your DeepL account page."],
+            _ => BrandedText.Current["DeepL could not be reached. Check your internet connection."],
         };
     }
 
@@ -184,7 +185,7 @@ public partial class SettingsWindow : Window
         area = slot;
         var wasLoading = loading;
         loading = true;
-        var text = Localizer.Current;
+        var text = BrandedText.Current;
         var settings = controller.Settings;
         if (slot == 0)
         {
@@ -248,7 +249,7 @@ public partial class SettingsWindow : Window
 
     private void OnReset(object sender, RoutedEventArgs e)
     {
-        var text = Localizer.Current;
+        var text = BrandedText.Current;
         var answer = MessageBox.Show(this, text["The saved PS5, account and TV connection will be removed."], text["Set up again?"],
             MessageBoxButton.OKCancel, MessageBoxImage.Warning);
         if (answer != MessageBoxResult.OK) return;
@@ -263,7 +264,7 @@ public partial class SettingsWindow : Window
         try
         {
             Clipboard.SetText(ObsAddress.Text);
-            ObsCopy.Content = Localizer.Current["Copied"];
+            ObsCopy.Content = BrandedText.Current["Copied"];
         }
         catch (System.Runtime.InteropServices.COMException) { }
     }

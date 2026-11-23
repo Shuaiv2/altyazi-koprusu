@@ -35,7 +35,7 @@
                 </Grid>
 
                 <!-- Alt: hakkında -->
-                <Button x:Name="AboutButton" DockPanel.Dock="Bottom" Content="Altyazı Köprüsü Hakkında" Style="{StaticResource PillButton}"
+                <Button x:Name="AboutButton" DockPanel.Dock="Bottom" Content="Ludora Hakkında" Style="{StaticResource PillButton}"
                         HorizontalAlignment="Center" Margin="0,12,8,0" Click="OnAbout" />
 
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -507,6 +507,10 @@
                                     <CheckBox x:Name="DesktopOverlayCheck" Content="PC Ekranında Altyazı (Şeffaf Katman)" Checked="OnDesktopOverlayToggle" Unchecked="OnDesktopOverlayToggle" Margin="0,5,22,5" />
                                     <CheckBox x:Name="BoldCheck" Content="Kalın (Bold)" Checked="OnBold" Unchecked="OnBold" Margin="0,5,22,5" />
                                     <CheckBox x:Name="SpeakerColorCheck" Content="Konuşmacı adı renkli" Checked="OnSpeakerColor" Unchecked="OnSpeakerColor" Margin="0,5,22,5" ToolTip="Konuşan kişinin adı (ör. MARKOS:) çevirinin geri kalanından farklı renkte gösterilir." />
+                                    <CheckBox x:Name="ScreenObjectiveCheck" Content="Görev hedefi" Checked="OnScreenToggle" Unchecked="OnScreenToggle" Margin="0,5,22,5" ToolTip="Ekrandaki görev hedefi yazısını çevirir." />
+                                    <CheckBox x:Name="ScreenInfoCheck" Content="Bilgi kutuları" Checked="OnScreenToggle" Unchecked="OnScreenToggle" Margin="0,5,22,5" ToolTip="Öğretici ve bilgi kutularını çevirir." />
+                                    <CheckBox x:Name="ScreenNotifyCheck" Content="Telefon/bildirimler" Checked="OnScreenToggle" Unchecked="OnScreenToggle" Margin="0,5,22,5" ToolTip="Telefon konuşmalarını ve bildirim kartlarını çevirir." />
+                                    <CheckBox x:Name="ScreenDescriptionCheck" Content="Harita/menü açıklamaları" Checked="OnScreenToggle" Unchecked="OnScreenToggle" Margin="0,5,22,5" ToolTip="Harita ve menüdeki açıklama yazılarını çevirir." />
                                     <CheckBox x:Name="DubbingCheck" Content="Türkçe Dublaj" Checked="OnDubbing" Unchecked="OnDubbing" Margin="0,5,22,5" />
                                     <CheckBox x:Name="MutePcCheck" Content="PC Sesini Kapat" Checked="OnMutePc" Unchecked="OnMutePc" Margin="0,5,22,5" IsChecked="True" />
                                 </WrapPanel>
@@ -586,7 +590,7 @@
                                             <ColumnDefinition Width="*" />
                                             <ColumnDefinition Width="Auto" />
                                         </Grid.ColumnDefinitions>
-                                        <Button Grid.Column="0" Content="Paketleri Tara ve Güncelle" Click="OnScanPatchesClick" Style="{StaticResource PrimaryButton}" Padding="14,6" FontSize="13" FontWeight="SemiBold" Margin="0,0,8,0" ToolTip="Hem yerel diskteki paketleri (%LOCALAPPDATA%\Altyazı Köprüsü\packs) hem de resmi depodaki en güncel paketleri otomatik tarar ve eşler" />
+                                        <Button Grid.Column="0" Content="Paketleri Tara ve Güncelle" Click="OnScanPatchesClick" Style="{StaticResource PrimaryButton}" Padding="14,6" FontSize="13" FontWeight="SemiBold" Margin="0,0,8,0" ToolTip="Hem yerel diskteki paketleri (%LOCALAPPDATA%\Ludora\packs) hem de resmi depodaki en güncel paketleri otomatik tarar ve eşler" />
                     <Button Grid.Column="1" Content="Yama Yükle (.json, .srt)" Click="OnImportPatchClick" Style="{StaticResource PillButton}" FontWeight="SemiBold" ToolTip="Kendi hazırladığınız veya indirdiğiniz özel yama dosyasını içeri aktarın" />
                                     </Grid>
 
@@ -754,7 +758,7 @@
                                     <Grid Margin="0,0,0,6">
                                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                                             <TextBlock Text="{x:Static c:Glyphs.Tv}" Style="{StaticResource GlyphText}" FontSize="15" Foreground="{DynamicResource successBrush}" Margin="0,0,6,0" VerticalAlignment="Center" />
-                                            <TextBlock Text="Akıllı TV &amp; Altyazı Köprüsü" FontWeight="SemiBold" FontSize="13" Foreground="White" VerticalAlignment="Center" />
+                                            <TextBlock Text="Akıllı TV &amp; Ludora" FontWeight="SemiBold" FontSize="13" Foreground="White" VerticalAlignment="Center" />
                                         </StackPanel>
                                         <TextBlock Text="Port 8787 (SSE)" HorizontalAlignment="Right" FontSize="12" FontFamily="Consolas" Foreground="{DynamicResource textTertiaryBrush}" VerticalAlignment="Center" />
                                     </Grid>
@@ -815,7 +819,7 @@
                                     </Border>
                                     <StackPanel Grid.Column="1">
                                         <TextBlock Text="TV Uygulaması" FontWeight="SemiBold" FontSize="13" Foreground="White" Margin="0,0,0,2" />
-                                        <TextBlock Text="TV'nizde Altyazı Köprüsü uygulamasını açın. Bilgisayara aynı Wi-Fi üzerinden otomatik olarak bağlanır." FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" />
+                                        <TextBlock Text="TV'nizde Ludora uygulamasını açın. Bilgisayara aynı Wi-Fi üzerinden otomatik olarak bağlanır." FontSize="12" Foreground="{DynamicResource textSecondaryBrush}" TextWrapping="Wrap" />
                                     </StackPanel>
                                 </Grid>
                             </Border>
@@ -888,7 +892,7 @@
                                 <ImageBrush ImageSource="/Assets/logo.png" Stretch="UniformToFill" />
                             </Border.Background>
                         </Border>
-                        <TextBlock Text="Altyazı Köprüsü" Style="{StaticResource LargeTitleText}" FontSize="24" VerticalAlignment="Center" />
+                        <TextBlock Text="Ludora" Style="{StaticResource LargeTitleText}" FontSize="24" VerticalAlignment="Center" />
                     </StackPanel>
                     <Button Style="{StaticResource IconButton}" HorizontalAlignment="Right" VerticalAlignment="Center" Click="OnSettingsButton" ToolTip="Ayarlar" AutomationProperties.Name="Ayarlar">
                         <Border Width="36" Height="36" CornerRadius="18" Background="{DynamicResource cardStrongBrush}">
@@ -1034,7 +1038,7 @@
                             <Grid Margin="0,8">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                 <Border Width="24" Height="24" CornerRadius="12" Background="{DynamicResource cardStrongBrush}"><TextBlock Text="3" FontWeight="Bold" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" /></Border>
-                                <TextBlock Grid.Column="1" Text="TV'de Altyazı Köprüsü'nü aç; çeviri oyunun üstünde görünür." FontSize="14" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                <TextBlock Grid.Column="1" Text="TV'de Ludora'yı aç; çeviri oyunun üstünde görünür." FontSize="14" TextWrapping="Wrap" VerticalAlignment="Center" Margin="12,0,0,0" />
                             </Grid>
                         </StackPanel>
                     </Border>

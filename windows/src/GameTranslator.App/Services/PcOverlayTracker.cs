@@ -98,22 +98,28 @@ public sealed class PcOverlayTracker : IDisposable
             var rects = monitors.Select(m => new ScreenRect(m.Left, m.Top, m.Width, m.Height)).ToList();
 
             ScreenRect? target = null;
+            // Ekran metni kartları oyunun yakalanan alanına oturur: pencere istemci alanı ya da monitörün tamamı.
+            ScreenRect? gameArea = null;
             var name = s.DesktopWindowName;
             if (!string.IsNullOrWhiteSpace(name) && name.StartsWith("monitor:", StringComparison.OrdinalIgnoreCase)
                 && int.TryParse(name["monitor:".Length..], out var index))
             {
                 var monitor = monitors.FirstOrDefault(m => m.Index == index);
-                if (monitor is not null) target = new ScreenRect(monitor.Left, monitor.Top, monitor.Width, monitor.Height);
+                if (monitor is not null) target = gameArea = new ScreenRect(monitor.Left, monitor.Top, monitor.Width, monitor.Height);
             }
             else
             {
                 var handle = resolver.Resolve(s.SavedSource, name);
                 if (handle != IntPtr.Zero && WindowCaptureService.GetClientScreenRect(handle) is { } client)
+                {
                     target = MonitorPicker.For(client, rects);
+                    gameArea = client;
+                }
             }
 
             // Pencere bulunamazsa katman son monitörde kalır (ya da ana monitörde başlar).
             if (target is { } t) DesktopSubtitleOverlay.SetTargetMonitor(t.Left, t.Top, t.Width, t.Height);
+            if (gameArea is not null) DesktopSubtitleOverlay.SetGameRect(gameArea);
         }
         catch { }
     }

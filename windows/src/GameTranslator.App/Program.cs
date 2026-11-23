@@ -20,7 +20,7 @@ public static class Program
         if (args is not (["--replay", ..] or ["--repair", ..] or ["--render-screens", ..])) try
         {
             var current = System.Diagnostics.Process.GetCurrentProcess();
-            foreach (var p in System.Diagnostics.Process.GetProcessesByName("GameTranslator"))
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName("Ludora"))
             {
                 if (p.Id != current.Id)
                 {

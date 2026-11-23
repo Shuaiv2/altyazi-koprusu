@@ -90,6 +90,30 @@ public class SubtitleServerTests
     }
 
     [Fact]
+    public async Task StreamsRegionScreenItemsLikeTheMacAndClearsOnlyThatRegion()
+    {
+        using var server = new SubtitleServer(0);
+        var port = await server.StartAsync();
+        using var response = await Http.GetAsync($"http://127.0.0.1:{port}/events", HttpCompletionOption.ResponseHeadersRead);
+        await WaitUntil(() => server.ConnectedClients == 1);
+        server.SendScreen("notify", [
+            new ScreenItem("Merhaba", "Hello", new TextBox(0.1, 0.2, 0.3, 0.3), 0.025, "over", "light", "Lucia"),
+            new ScreenItem("", "chat", new TextBox(0.6, 0.1, 0.8, 0.9), 0.02, "beside", "dark", "Jason",
+                [new ScreenMessage(false, "Selam", "Hi"), new ScreenMessage(true, "Nasılsın", "How are you")]),
+        ]);
+        server.ClearScreen("notify");
+
+        using var reader = new StreamReader(await response.Content.ReadAsStreamAsync());
+        var lines = await ReadLines(reader, "data: {\"region\":\"notify\"}");
+        var data = lines.Where(l => l.StartsWith("data:")).ToList();
+        Assert.Contains(data, l => l.Contains("\"region\":\"notify\"") && l.Contains("\"duration\":15000") &&
+            l.Contains("{\"box\":{\"bottom\":0.3,\"left\":0.1,\"right\":0.3,\"top\":0.2},\"line\":0.025,\"placement\":\"over\",\"source\":\"Hello\",\"speaker\":\"Lucia\",\"text\":\"Merhaba\",\"theme\":\"light\"}") &&
+            l.Contains("\"messages\":[{\"from\":\"them\",\"source\":\"Hi\",\"text\":\"Selam\"},{\"from\":\"me\",\"source\":\"How are you\",\"text\":\"Nasılsın\"}]") &&
+            l.Contains("\"placement\":\"beside\""));
+        Assert.Contains("data: {\"region\":\"notify\"}", lines);
+    }
+
+    [Fact]
     public async Task ObsOverlayIsServedAndNotCountedAsTv()
     {
         using var server = new SubtitleServer(0);

@@ -1,5 +1,6 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 
+using GameTranslator.App.Theme;
 using System.Windows;
 using System.Windows.Controls;
 using GameTranslator.Core;
@@ -81,7 +82,7 @@ public partial class ConsoleStep : UserControl
         }
         catch (Exception)
         {
-            Error.Text = AppException.Describe(AppError.RegistrationFailed, Localizer.Current);
+            Error.Text = Branding.Fix(AppException.Describe(AppError.RegistrationFailed, Localizer.Current));
         }
         UpdateConnect();
     }

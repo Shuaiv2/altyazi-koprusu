@@ -1,5 +1,6 @@
 ﻿// SPDX-License-Identifier: AGPL-3.0-only
 
+using GameTranslator.App.Theme;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
@@ -58,7 +59,7 @@ public partial class TvAppCard : UserControl
 
     private void Show(TvAppState state)
     {
-        var text = Localizer.Current;
+        var text = BrandedText.Current;
         var brand = controller?.Tv?.Brand ?? TvBrand.Lg;
         var devModeOff = state.Kind == TvAppKind.DevModeOff;
         Visibility = Visible(state.Kind != TvAppKind.Unknown);
@@ -97,13 +98,13 @@ public partial class TvAppCard : UserControl
         };
         Detail.Visibility = Visible(Detail.Text.Length > 0);
         Problem.Text = state.Error is { } error
-            ? Message(error, brand) + (state.Reason is { } reason ? $"\n\n{Localizer.Current["TV says:"]} {reason}" : "")
+            ? Message(error, brand) + (state.Reason is { } reason ? $"\n\n{BrandedText.Current["TV says:"]} {reason}" : "")
             : "";
         if (devModeOff) devModeWatch.Start();
         else devModeWatch.Stop();
     }
 
-    private static string Message(DevModeError error, TvBrand brand) => Localizer.Current[error switch
+    private static string Message(DevModeError error, TvBrand brand) => BrandedText.Current[error switch
     {
         DevModeError.KeyServerOff => "Key Server is off. Turn it on in the Developer Mode app and keep the app on screen.",
         DevModeError.WrongPassphrase => "The passphrase is not correct. Check it on the TV screen.",
@@ -112,7 +113,7 @@ public partial class TvAppCard : UserControl
             "The TV did not accept this computer. In the TV's Developer Mode window, check that Host PC IP is this computer's address, then restart the TV.",
         DevModeError.Unreachable => "The TV did not respond. Make sure it is on and on the same network.",
         DevModeError.ToolMissing => "Windows' OpenSSH Client is missing. Add it in Settings › System › Optional features and try again.",
-        DevModeError.TooOld => "This Samsung TV is too old for the Altyazı Köprüsü TV app (2019 models and later are supported).",
+        DevModeError.TooOld => "This Samsung TV is too old for the Ludora TV app (2019 models and later are supported).",
         DevModeError.SignInFailed => "Samsung sign-in did not complete. Try again and finish signing in on the page that opens.",
         DevModeError.CertificateFailed => "Samsung did not issue the signing certificate. Try again in a few minutes.",
         DevModeError.NotApproved => "Debugging was not allowed on the TV. Try again and choose Allow on the TV.",
@@ -146,5 +147,5 @@ public partial class TvAppCard : UserControl
     }
 
     private void OnGuide(object sender, RoutedEventArgs e) =>
-        Process.Start(new ProcessStartInfo("https://github.com/Sefflex/GameTranslate/blob/main/docs/tv-kurulum.md#android-tv--google-tv") { UseShellExecute = true });
+        Process.Start(new ProcessStartInfo("https://github.com/Shuaiv2/altyazi-koprusu/blob/main/docs/tv-kurulum.md#android-tv--google-tv") { UseShellExecute = true });
 }

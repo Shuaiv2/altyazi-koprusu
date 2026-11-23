@@ -60,7 +60,7 @@ Mac, altyazıdan bağımsız olarak oyun ekranındaki metinleri ~1 sn'de bir **t
 | `notify` | telefon mesajı ya da kısa bildirim | sağ alt (mesaj) / sağ üst (ör. "Map updated") | `left` |
 | `description` | harita/menü açıklaması (yalnızca harita ve duraklatma menüsünde) | panel (örn. x 0,55–0,80) | `over` |
 
-`placement` değerleri: `below` = çeviri İngilizce kutunun altına; `left` = kutunun soluna; `over` = TV Türkçeyi İngilizce kutunun **üzerine** (onu örterek) çizer.
+`placement` değerleri: `below` = çeviri İngilizce kutunun altına; `left` = kutunun soluna; `over` = TV Türkçeyi İngilizce kutunun **üzerine** (onu örterek) çizer; `beside` (Mac 1.7.3, TV 1.7.2) = açık telefon konuşması için kutunun **yanında** sohbet paneli (aşağıda).
 
 **Mac → TV: SSE olayı `screen`**
 
@@ -79,6 +79,26 @@ Mac, altyazıdan bağımsız olarak oyun ekranındaki metinleri ~1 sn'de bir **t
 - `speaker` (isteğe bağlı, yalnızca `notify` mesajı): gönderen adı; çevrilmez, `text` yalnızca mesajı içerir. TV isterse etiket olarak gösterir.
 - `description` öğesinde `text`, `"BAŞLIK: gövde"` biçimindedir (başlık ve gövde ayrı çevrilir; başlık büyük harf). `source` da `"TITLE: body"`.
 - Bir blok, 2 ardışık tam kare geçişinde (≥ 0,85 metin benzerliği) görülünce gönderilir; ekranda kaldığı sürece aynı metin yeniden gönderilmez.
+
+**Telefon sohbet paneli (`region":"phone"`, `placement":"beside"`)**
+
+Telefon elde açık bir konuşmadaysa Mac, konuşmayı balon balon ayrı öğe yerine **tek öğe** olarak gönderir (tek yuva "phone"; yeni mesaj gelince ya da son mesaj uzayınca yeniden gönderilir, OCR titremesinde gönderilmez). Her balon ayrı çevrilir; İngilizce metin TV'de gösterilmez.
+
+```json
+{"region":"phone","duration":15000,"items":[
+  {"text":"","placement":"beside","speaker":"Linda","theme":"dark",
+   "box":{"left":0.450,"top":0.122,"right":0.697,"bottom":0.735},
+   "line":0.024,
+   "messages":[
+     {"from":"them","text":"Kiranı ödediğin sürece. L.","source":"As long as you pay your rent. L."},
+     {"from":"me","text":"Tamam. Teşekkürler.","source":"Okay. Thanks."}
+   ]}
+]}
+```
+
+- `box`: telefonun kutusu (tüm karede normalize). `speaker`: konuşma başlığındaki kişi adı (yalnızca panel başlığı). `messages`: eskiden yeniye; `from` `"them"` (solda) ya da `"me"` (oyuncunun sağa yaslı yanıtı, mavi). `source` yalnızca hata ayıklama içindir.
+- TV: panel telefonun soluna (sağ kenar = `box.left`·W − 24 px), yer yoksa sağına konur; genişlik min(0,24·W, 460 px), üst kenar `box.top`, en çok yükseklik kutu yüksekliği; taşarsa en eski mesajlar üstten atılır. Yazı 1080p'de 23 px (en az 18), satır aralığı 1,3.
+- `messages` olmayan öğeler eski davranışla (over/left/below) çizilir. Sağ alttaki gelen bildirim kartları (`notify`) değişmedi.
 
 **Mac → TV: SSE olayı `screen-clear`**
 

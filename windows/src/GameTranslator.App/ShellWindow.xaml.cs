@@ -50,13 +50,19 @@ public partial class ShellWindow : Window
         Action<string, int, GameTranslator.Core.TextBox?> overlayHandler = (text, ms, box) => DesktopSubtitleOverlay.Display(text, ms, controller.Settings.Style, box);
         controller.LiveSubtitleShown += overlayHandler;
         controller.SubtitlesCleared += DesktopSubtitleOverlay.Clear;
+        // Ekran metni çevirileri (görev hedefi, bilgi kutusu, bildirim, açıklama, telefon sohbeti) TV'deki gibi çizilir.
+        controller.ScreenItemsShown += DesktopSubtitleOverlay.ShowScreen;
+        controller.ScreenItemsCleared += ClearScreenRegion;
         DesktopSubtitleOverlay.Initialize();
         Closed += (_, _) =>
         {
             controller.PcResultReady -= PcResultWindow.Display;
             controller.LiveSubtitleShown -= overlayHandler;
             controller.SubtitlesCleared -= DesktopSubtitleOverlay.Clear;
+            controller.ScreenItemsShown -= DesktopSubtitleOverlay.ShowScreen;
+            controller.ScreenItemsCleared -= ClearScreenRegion;
             DesktopSubtitleOverlay.Clear();
+            DesktopSubtitleOverlay.ClearScreen(null);
             overlayTracker?.Dispose();
             hotkeys?.Dispose();
             SystemEvents.PowerModeChanged -= OnPowerModeChanged;
@@ -64,6 +70,8 @@ public partial class ShellWindow : Window
         };
         ShowScreen(force: true);
     }
+
+    private static void ClearScreenRegion(string region) => DesktopSubtitleOverlay.ClearScreen(region);
 
     private void OnChanged(object? sender, PropertyChangedEventArgs e)
     {

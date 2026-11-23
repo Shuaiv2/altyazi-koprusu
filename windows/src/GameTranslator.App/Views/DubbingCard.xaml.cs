@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 
+using GameTranslator.App.Theme;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
@@ -19,8 +20,8 @@ public partial class DubbingCard : UserControl
     {
         InitializeComponent();
         // Kesme işaretli metinler XAML biçimlendirme uzantısına yazılamıyor.
-        SetupHint.Text = Localizer.Current["In the game's audio settings, turn the dialogue (voice) volume down; keep music and effects. If the game can show speaker names in subtitles, turn them on: every character then speaks with its own voice."];
-        Credits.Text = Localizer.Current["Voices: Pocket TTS Turkish (wite-tech, CC BY 4.0) with Kyutai's pocket-tts. The voices are synthetic, not real people."];
+        SetupHint.Text = BrandedText.Current["In the game's audio settings, turn the dialogue (voice) volume down; keep music and effects. If the game can show speaker names in subtitles, turn them on: every character then speaks with its own voice."];
+        Credits.Text = BrandedText.Current["Voices: Pocket TTS Turkish (wite-tech, CC BY 4.0) with Kyutai's pocket-tts. The voices are synthetic, not real people."];
         Unloaded += (_, _) =>
         {
             if (controller is not null) controller.PropertyChanged -= OnChanged;
@@ -35,7 +36,7 @@ public partial class DubbingCard : UserControl
         Refresh();
     }
 
-    private static string Label(DubbingVoice voice) => Localizer.Current[voice switch
+    private static string Label(DubbingVoice voice) => BrandedText.Current[voice switch
     {
         DubbingVoice.Female1 => "Woman 1 (bright)",
         DubbingVoice.Female2 => "Woman 2 (warm)",
@@ -61,7 +62,7 @@ public partial class DubbingCard : UserControl
         EnginePanel.Visibility = controller.FastDubbingAvailable ? Visibility.Visible : Visibility.Collapsed;
         var fast = controller.FastDubbingAvailable && settings.Engine == DubbingEngine.Fast;
         (fast ? FastEngine : NaturalEngine).IsChecked = true;
-        EngineHint.Text = Localizer.Current[fast
+        EngineHint.Text = BrandedText.Current[fast
             ? "Windows' own Turkish voice: speaks at once, nothing to download. Sounds more mechanical."
             : "Natural voices, downloaded once. Each line takes a moment to prepare, so the voice can come a little after the subtitle."];
         Credits.Visibility = fast ? Visibility.Collapsed : Visibility.Visible;
@@ -71,7 +72,7 @@ public partial class DubbingCard : UserControl
         DownloadButton.IsEnabled = !controller.DubbingDownloading;
         Progress.Visibility = ProgressText.Visibility = controller.DubbingDownloading ? Visibility.Visible : Visibility.Collapsed;
         Progress.Value = controller.DubbingProgress;
-        ProgressText.Text = Localizer.Current["Downloading voices… %lld%%"]
+        ProgressText.Text = BrandedText.Current["Downloading voices… %lld%%"]
             .Replace("%lld", ((int)(controller.DubbingProgress * 100)).ToString()).Replace("%%", "%");
         (settings.Output == DubbingOutput.Tv ? OnTv : OnComputer).IsChecked = true;
         Error.Text = controller.DubbingError ?? "";
@@ -83,12 +84,12 @@ public partial class DubbingCard : UserControl
     private void BuildVoices(VoiceCast cast)
     {
         Voices.Children.Clear();
-        Voices.Children.Add(VoiceRow(Localizer.Current["Narrator and unnamed lines"], cast.Narrator,
+        Voices.Children.Add(VoiceRow(BrandedText.Current["Narrator and unnamed lines"], cast.Narrator,
             voice => Update(s => s with { Dubbing = s.Dubbing with { Cast = WithRoles(s.Dubbing.Cast, narrator: voice) } })));
-        Voices.Children.Add(VoiceRow(Localizer.Current["Second speaker in dialogue"], cast.Partner,
+        Voices.Children.Add(VoiceRow(BrandedText.Current["Second speaker in dialogue"], cast.Partner,
             voice => Update(s => s with { Dubbing = s.Dubbing with { Cast = WithRoles(s.Dubbing.Cast, partner: voice) } })));
         if (cast.Assignments.Count == 0) return;
-        Voices.Children.Add(new TextBlock { Text = Localizer.Current["Characters"], FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 4) });
+        Voices.Children.Add(new TextBlock { Text = BrandedText.Current["Characters"], FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 12, 0, 4) });
         foreach (var name in cast.Assignments.Keys.Order(StringComparer.Ordinal))
             Voices.Children.Add(VoiceRow(DisplayName(name), cast.Assignments[name], voice => controller?.AssignVoice(voice, name)));
     }
@@ -127,7 +128,7 @@ public partial class DubbingCard : UserControl
         {
             if (!loading && picker.SelectedItem is ComboBoxItem { Tag: DubbingVoice voice }) choose(voice);
         };
-        var listen = new Button { Content = Localizer.Current["Listen"] };
+        var listen = new Button { Content = BrandedText.Current["Listen"] };
         listen.Click += async (_, _) =>
         {
             if (controller is not null && picker.SelectedItem is ComboBoxItem { Tag: DubbingVoice voice }) await controller.PreviewVoiceAsync(voice);

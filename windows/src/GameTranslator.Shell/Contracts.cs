@@ -78,6 +78,24 @@ public sealed record UserSettings
     public bool AllowOnlineFallback { get; init; }
     /// <summary>"Yalnızca oyun altyazısını çevir": tabela, plaka, HUD sayısı, tuş ipuçlarını eler (<see cref="SubtitleFilter"/>).</summary>
     public bool SubtitleOnly { get; init; } = true;
+    /// <summary>Ekran metni çevirisi: görev hedefi (Mac: "Görev hedefi"). Varsayılan açık.</summary>
+    public bool ScreenObjective { get; init; } = true;
+    /// <summary>Ekran metni çevirisi: bilgi/öğretici kutuları ("Bilgi kutuları").</summary>
+    public bool ScreenInfo { get; init; } = true;
+    /// <summary>Ekran metni çevirisi: telefon konuşmaları ve bildirim kartları ("Telefon/bildirimler").</summary>
+    public bool ScreenNotify { get; init; } = true;
+    /// <summary>Ekran metni çevirisi: harita ve menü açıklamaları ("Harita/menü açıklamaları").</summary>
+    public bool ScreenDescription { get; init; } = true;
+
+    /// <summary>Bu türde ekran metni çevirisi açık mı (telefon konuşması bildirimlerle aynı anahtara bağlı).</summary>
+    public bool ScreenKindEnabled(ScreenKind kind) => kind switch
+    {
+        ScreenKind.Objective => ScreenObjective,
+        ScreenKind.Info => ScreenInfo,
+        ScreenKind.Notify or ScreenKind.Phone => ScreenNotify,
+        ScreenKind.Description => ScreenDescription,
+        _ => false,
+    };
     /// <summary>
     /// Hiçbir pakette bulunmayan İngilizce oyun satırları ortak havuza gönderilir (anonim, yalnız satır metni ve oyun adı;
     /// bkz. <see cref="LinePool"/>). Yeni oyun paketleri bunlardan hazırlanır. Ayarlardan kapatılabilir.

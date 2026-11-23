@@ -328,6 +328,40 @@ public sealed class SubtitleServer(int port = 8787, TimeSpan? pingInterval = nul
         Broadcast(Frame("screen", new SortedDictionary<string, object> { ["duration"] = durationMs, ["items"] = list }), subtitle: true);
     }
 
+    /// <summary>
+    /// Ekran metni çevirileri (görev hedefi, bilgi kutusu, bildirim, açıklama, telefon): <c>screen</c> olayı bölge adıyla
+    /// (<c>region</c>) gider; TV yalnız o bölgenin öğelerini değiştirir (Mac: sendScreen).
+    /// </summary>
+    public void SendScreen(string region, IReadOnlyList<ScreenItem> items, int durationMs = 15000)
+    {
+        var list = items.Select(ScreenItemJson).ToList();
+        Broadcast(Frame("screen", new SortedDictionary<string, object> { ["duration"] = durationMs, ["items"] = list, ["region"] = region }), subtitle: true);
+    }
+
+    /// <summary>Yalnız verilen bölgeyi temizler (<c>{"region":"notify"}</c>; Mac: clearScreen).</summary>
+    public void ClearScreen(string region) =>
+        Broadcast(Frame("screen-clear", new SortedDictionary<string, object> { ["region"] = region }), subtitle: true);
+
+    internal static SortedDictionary<string, object> ScreenItemJson(ScreenItem item)
+    {
+        var json = new SortedDictionary<string, object>
+        {
+            ["box"] = BoxJson(item.Box),
+            ["line"] = Round(item.LineHeight),
+            ["placement"] = item.Placement,
+            ["source"] = item.Source,
+            ["text"] = item.Text,
+            ["theme"] = item.Theme,
+        };
+        if (item.Speaker is { Length: > 0 } speaker) json["speaker"] = speaker;
+        if (item.Messages is { Count: > 0 } messages)
+            json["messages"] = messages.Select(m => new SortedDictionary<string, object>
+            {
+                ["from"] = m.FromMe ? "me" : "them", ["source"] = m.Source, ["text"] = m.Text,
+            }).ToList();
+        return json;
+    }
+
     /// <summary>TV'deki "ekranı çevir" çevirilerini kaldırır (altyazıya dokunmaz).</summary>
     public void ClearScreen() => Broadcast(Frame("screen-clear", new SortedDictionary<string, object>()), subtitle: true);
 
