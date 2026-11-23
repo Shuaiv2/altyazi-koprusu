@@ -329,10 +329,10 @@ public final class NativeSubtitleServer: @unchecked Sendable {
                 self.respondAndClose(connection, status: "200 OK", body: body, type: "application/json; charset=utf-8")
             }
         } else if (method == "GET" || method == "POST") && path == "/test" {
-            self.sendSubtitle(turkish: "🎮 Altyazı Köprüsü Canlı Altyazı Testi Başarılı!", original: "Altyazı Köprüsü Live Subtitle Test Successful!", durationMs: 15000)
+            self.sendSubtitle(turkish: "🎮 Ludora Canlı Altyazı Testi Başarılı!", original: "Ludora Live Subtitle Test Successful!", durationMs: 15000)
             respondAndClose(connection, status: "200 OK", body: #"{"status":"ok","message":"Test altyazisi gonderildi"}"#, type: "application/json")
         } else if (method == "GET" || method == "POST") && path == "/send" {
-            var text = "🎮 Altyazı Köprüsü Canlı Altyazı"
+            var text = "🎮 Ludora Canlı Altyazı"
             var original = ""
             var duration = 12000
             if let query = target.components(separatedBy: "?").dropFirst().first {
@@ -1490,7 +1490,7 @@ enum TVHelperBridge {
 
     static func installAndroidTV(host: String) -> (success: Bool, message: String) {
         guard let apk = bundledAPKURL else {
-            return (false, "Altyazı Köprüsü TV APK paketi bulunamadı.")
+            return (false, "Ludora TV APK paketi bulunamadı.")
         }
 
         let pythonCandidates = ["/usr/local/bin/python3", "/opt/homebrew/bin/python3", "/usr/bin/python3"]
@@ -1529,7 +1529,7 @@ enum TVHelperBridge {
                            let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                            let event = obj["event"] as? String {
                             if event == "done" {
-                                let msg = obj["message"] as? String ?? "✅ Altyazı Köprüsü TV uygulaması televizyona başarıyla yüklendi ve açıldı!"
+                                let msg = obj["message"] as? String ?? "✅ Ludora TV uygulaması televizyona başarıyla yüklendi ve açıldı!"
                                 return (true, msg)
                             } else if event == "error" {
                                 let msg = obj["message"] as? String ?? "TV Kurulum Hatası."
@@ -1575,7 +1575,7 @@ enum TVHelperBridge {
                        let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                        let event = obj["event"] as? String {
                         if event == "done" {
-                            return (true, "✅ Altyazı Köprüsü TV uygulaması televizyona başarıyla yüklendi ve açıldı!")
+                            return (true, "✅ Ludora TV uygulaması televizyona başarıyla yüklendi ve açıldı!")
                         } else if event == "approve" {
                             return (false, "⚠️ Televizyon ekranında 'Bu bilgisayardan hata ayıklamaya her zaman izin verilsin mi?' sorusu belirdi. Lütfen TV kumandasıyla 'İzin Ver' / 'Tamam' seçeneğini işaretleyip tekrar 'TV'ye Otomatik Kur' butonuna basın.")
                         } else if event == "error" {
@@ -1635,7 +1635,7 @@ enum TVHelperBridge {
                        let obj = try? JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
                        let event = obj["event"] as? String {
                         if event == "done" {
-                            let msg = obj["message"] as? String ?? "✅ Altyazı Köprüsü TV ekranına getirildi!"
+                            let msg = obj["message"] as? String ?? "✅ Ludora TV ekranına getirildi!"
                             return (true, msg)
                         } else if event == "error" {
                             let msg = obj["message"] as? String ?? "TV Hatası."
@@ -1741,11 +1741,11 @@ final class AppState {
         if isRunning {
             if displayAssertion == 0 {
                 IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleDisplaySleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
-                                            "Altyazı Köprüsü çeviri çalışıyor" as CFString, &displayAssertion)
+                                            "Ludora çeviri çalışıyor" as CFString, &displayAssertion)
             }
             if systemAssertion == 0 {
                 IOPMAssertionCreateWithName(kIOPMAssertionTypePreventUserIdleSystemSleep as CFString, IOPMAssertionLevel(kIOPMAssertionLevelOn),
-                                            "Altyazı Köprüsü çeviri çalışıyor" as CFString, &systemAssertion)
+                                            "Ludora çeviri çalışıyor" as CFString, &systemAssertion)
             }
         } else { releaseSleepAssertions() }
     }
@@ -1920,6 +1920,7 @@ final class AppState {
     var obsCopied: Bool = false
     var testSent: Bool = false
     var showAbout: Bool = false
+    var showLicense: Bool = false
     
     // Gerçek PS5 Oyun Karesi (1920x1080 Remote Play Akış Görüntüsü)
     var gameFrameImage: NSImage? = nil
@@ -2110,8 +2111,8 @@ final class AppState {
                     // Televizyona otomatik hoş geldin ve bağlantı testi altyazısı gönder
                     DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
                         self.server.sendSubtitle(
-                            turkish: "🎮 Altyazı Köprüsü Televizyonunuza Başarıyla Bağlandı! (Hazır)",
-                            original: "Altyazı Köprüsü TV Connected Successfully! (Ready)",
+                            turkish: "🎮 Ludora Televizyonunuza Başarıyla Bağlandı! (Hazır)",
+                            original: "Ludora TV Connected Successfully! (Ready)",
                             durationMs: 15000
                         )
                     }
@@ -2125,8 +2126,8 @@ final class AppState {
 
     func sendTVTestSubtitle() {
         testSent = true
-        let testTr = "🎮 Altyazı Köprüsü Canlı Altyazı Testi Başarılı! (TCL Smart TV)"
-        let testEn = "Altyazı Köprüsü Live Subtitle Test Successful!"
+        let testTr = "🎮 Ludora Canlı Altyazı Testi Başarılı! (TCL Smart TV)"
+        let testEn = "Ludora Live Subtitle Test Successful!"
         let entry = SubtitleEntry(turkish: testTr, english: testEn, timestamp: currentTime())
         history.insert(entry, at: 0)
 
@@ -2604,7 +2605,7 @@ final class AppState {
                     self.hasScreenRecordingPermission = false
                     self.showPermissionBanner = true
                     self.liveEnglish = "Screen Capture Permission Required"
-                    self.liveTurkish = "⚠️ macOS Ekran Kaydı İzni Kapalı! Lütfen Sistem Ayarları'ndan Altyazı Köprüsü'ne izin verin."
+                    self.liveTurkish = "⚠️ macOS Ekran Kaydı İzni Kapalı! Lütfen Sistem Ayarları'ndan Ludora'ya izin verin."
                 }
             }
             return
@@ -3533,8 +3534,8 @@ final class AppState {
     
     func sendTestSubtitle() {
         testSent = true
-        let testTr = "Altyazı Köprüsü canlı altyazı testi başarılı! 🎮"
-        let testEn = "Altyazı Köprüsü live subtitle test successful!"
+        let testTr = "Ludora canlı altyazı testi başarılı! 🎮"
+        let testEn = "Ludora live subtitle test successful!"
         let entry = SubtitleEntry(turkish: testTr, english: testEn, timestamp: currentTime())
         history.insert(entry, at: 0)
         let testBox: [String: Double] = [
@@ -3581,10 +3582,10 @@ final class AppState {
         if format == "json" {
             let data = (try? JSONEncoder().encode(history)) ?? Data()
             content = String(decoding: data, as: UTF8.self)
-            filename = "GameTranslator_Altyazi_Gecmisi.json"
+            filename = "Ludora_Altyazi_Gecmisi.json"
         } else {
             content = history.map { "[\($0.timestamp)] TR: \($0.turkish)\n     EN: \($0.english)\n" }.joined(separator: "\n")
-            filename = "GameTranslator_Altyazi_Gecmisi.txt"
+            filename = "Ludora_Altyazi_Gecmisi.txt"
         }
         let savePanel = NSSavePanel()
         savePanel.nameFieldStringValue = filename
@@ -3641,10 +3642,16 @@ struct MainWindowView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             _ = state.checkScreenCapturePermission()
         }
-        .alert("Altyazı Köprüsü", isPresented: $state.showAbout) {
+        .alert("Ludora", isPresented: $state.showAbout) {
+            Button("Tamam", role: .cancel) { }
+            Button("Lisans bilgileri") { state.showLicense = true }
+        } message: {
+            Text("PlayStation 5 ve Akıllı TV için Sıfır Gecikmeli Yapay Zeka Çeviri Motoru.\n\nSürüm: 1.7.5\nSSE TV Portu: 8787")
+        }
+        .alert("Lisans bilgileri", isPresented: $state.showLicense) {
             Button("Tamam", role: .cancel) { }
         } message: {
-            Text("PlayStation 5 ve Akıllı TV için Sıfır Gecikmeli Yapay Zeka Çeviri Motoru.\n\nSürüm: 2.0.0\nSSE TV Portu: 8787\n\nGameTranslator (AGPL-3.0) tabanlıdır.")
+            Text("Ludora, CouchSubs ve GameTranslator tabanlıdır (AGPL-3.0).\nKaynak kod: https://github.com/Shuaiv2/altyazi-koprusu")
         }
     }
 
@@ -3673,7 +3680,7 @@ struct MainWindowView: View {
             Image(systemName: "gamecontroller.fill")
                 .font(.system(size: 15))
                 .foregroundStyle(Color.white.opacity(0.9))
-            Text("Altyazı Köprüsü")
+            Text("Ludora")
                 .font(.system(size: 14.5, weight: .bold))
                 .foregroundStyle(Color.white)
             Spacer()
@@ -4127,7 +4134,7 @@ struct MainWindowView: View {
             .background(Color(hex: "#FF453A").opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
             .buttonStyle(.plain)
 
-            Button("Altyazı Köprüsü Hakkında") {
+            Button("Ludora Hakkında") {
                 state.showAbout = true
             }
             .font(.system(size: 11))
@@ -4223,7 +4230,7 @@ struct MainWindowView: View {
                                                     Text("macOS Ekran Kaydı İzni Gerekli")
                                                         .font(.system(size: 13, weight: .bold))
                                                         .foregroundStyle(Color.white)
-                                                    Text("PS5 oyun görüntüsünü buraya aktarmak ve alt yazıları çevirebilmek için lütfen Sistem Ayarları'ndan Altyazı Köprüsü'ne izin verin.")
+                                                    Text("PS5 oyun görüntüsünü buraya aktarmak ve alt yazıları çevirebilmek için lütfen Sistem Ayarları'ndan Ludora'ya izin verin.")
                                                         .font(.system(size: 10.5))
                                                         .foregroundStyle(Color.white.opacity(0.8))
                                                         .multilineTextAlignment(.center)
@@ -4826,7 +4833,7 @@ struct MainWindowView: View {
                         Spacer()
 
                         Button {
-                            if let url = URL(string: "https://gitlab.com/sefflex/GameTranslator/-/tree/main/patches") {
+                            if let url = URL(string: "https://github.com/Shuaiv2/altyazi-koprusu") {
                                 NSWorkspace.shared.open(url)
                             }
                         } label: {
@@ -5192,7 +5199,7 @@ struct MainWindowView: View {
             VStack(alignment: .leading, spacing: 7) {
                 HStack {
                     Image(systemName: "tv.fill").font(.system(size: 12)).foregroundStyle(Color.green)
-                    Text("Akıllı TV & CouchSubs").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.white)
+                    Text("Akıllı TV & Ludora").font(.system(size: 12, weight: .semibold)).foregroundStyle(Color.white)
                     Spacer()
                     Text("Port 8787 (SSE)").font(.system(size: 10, weight: .medium, design: .monospaced)).foregroundStyle(Color.white.opacity(0.5))
                 }
@@ -5235,7 +5242,7 @@ struct MainWindowView: View {
             Text("Nasıl Kullanılır? (Hızlı Rehber)").font(.system(size: 12.5, weight: .bold)).foregroundStyle(Color.white)
             VStack(alignment: .leading, spacing: 9) {
                 guideItem(num: "1", title: "PS5 & TV", text: "PS5 konsolunuzu açın ve TV'deki HDMI portuna geçin. PS5 doğrudan TV'ye bağlı kalır.")
-                guideItem(num: "2", title: "TV Uygulaması", text: "TV'nizde Altyazı Köprüsü (veya CouchSubs) uygulamasını açın. Mac'e otomatik olarak bağlanır.")
+                guideItem(num: "2", title: "TV Uygulaması", text: "TV'nizde Ludora uygulamasını açın. Mac'e otomatik olarak bağlanır.")
                 guideItem(num: "3", title: "Okuma Alanı", text: "Oyununuzun altyazı konumuna göre 'Oyun Okuma Alanı' sekmesinden altyazı kutusunu ayarlayın.")
                 guideItem(num: "4", title: "Başlat", text: "Ana ekrandaki mavi '▶ Çeviriyi Başlat' butonuna tıklayın. Konsol görüntüsü taranıp altyazılar çevrilmeye başlar.")
                 guideItem(num: "5", title: "TV Görünümü", text: "Altyazı rengini (sarı/beyaz), boyutunu ve konumunu zevkinize göre ayarlayın; TV ekranına anında yansır!")
@@ -5298,7 +5305,7 @@ struct SetupWizardView: View {
                 .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(Color(hex: "#0A84FF"))
             VStack(alignment: .leading, spacing: 2) {
-                Text("Altyazı Köprüsü Kurulum Sihirbazı")
+                Text("Ludora Kurulum Sihirbazı")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundStyle(Color.white)
                 Text("PlayStation 5 & Akıllı TV Hızlı Yapılandırma")
@@ -5374,7 +5381,7 @@ struct SetupWizardView: View {
                         .foregroundStyle(Color(hex: "#0A84FF"))
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Altyazı Köprüsü'ne Hoş Geldiniz")
+                    Text("Ludora'ya Hoş Geldiniz")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(Color.white)
                     Text("PS5 oyunlarındaki İngilizce altyazıları ekrandan okur ve TV'nize anında Türkçe basar.")
@@ -5427,7 +5434,7 @@ struct SetupWizardView: View {
                     Text("İkinci PSN Hesabı Girişi")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(Color.white)
-                    Text("Altyazı Köprüsü oyunu Remote Play ile izler. İkinci hesap sayesinde ana hesabınızın kumandası hiç kapanmaz.")
+                    Text("Ludora oyunu Remote Play ile izler. İkinci hesap sayesinde ana hesabınızın kumandası hiç kapanmaz.")
                         .font(.system(size: 11.5))
                         .foregroundStyle(Color.white.opacity(0.7))
                 }
@@ -5964,7 +5971,7 @@ struct SetupWizardView: View {
                                     }
                                     .buttonStyle(.plain)
 
-                                    Text("TV'de 'Altyazı Köprüsü' uygulamasının açık olduğundan emin olun.")
+                                    Text("TV'de 'Ludora' uygulamasının açık olduğundan emin olun.")
                                         .font(.system(size: 10.5))
                                         .foregroundStyle(Color.white.opacity(0.7))
                                 }
@@ -6189,7 +6196,7 @@ struct SetupWizardView: View {
                     Text("Bağlantıyı Test Edin")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundStyle(Color.white)
-                    Text("Altyazı Köprüsü şimdi TV ekranınıza örnek bir Türkçe altyazı gönderecek.")
+                    Text("Ludora şimdi TV ekranınıza örnek bir Türkçe altyazı gönderecek.")
                         .font(.system(size: 11.5))
                         .foregroundStyle(Color.white.opacity(0.7))
                 }

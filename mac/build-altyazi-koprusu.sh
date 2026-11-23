@@ -1,5 +1,5 @@
 #!/bin/bash
-# Altyazı Köprüsü macOS derleme betiği (GameTranslator tabanlı, AGPL-3.0).
+# Ludora macOS derleme betiği (GameTranslator tabanlı, AGPL-3.0).
 # Kullanım: mac/build-altyazi-koprusu.sh [çıktı_klasörü]   (varsayılan: <repo>/../teslim)
 # Altyazı süzgeci testleri: bkz. mac/tests/README.md
 # Yalnızca çıktı klasörüne yazar. /Applications'a kurmaz, karantina özniteliğine dokunmaz, zip üretmez.
@@ -10,7 +10,7 @@ ROOT="$(cd "$DIR/.." && pwd)"
 OUT="${1:-$ROOT/../teslim}"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
-APP="$OUT/AltyaziKoprusu.app"
+APP="$OUT/Ludora.app"
 MACOS="$APP/Contents/MacOS"
 RES="$APP/Contents/Resources"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/altyazi-build.XXXXXX")"
@@ -19,13 +19,13 @@ trap 'rm -rf "$WORK"' EXIT
 echo "==> Swift derleniyor"
 CORE="$ROOT/core/Sources/GameTranslatorCore"
 swiftc -O -parse-as-library -target arm64-apple-macos14.0 "$DIR/NativeApp.swift" "$DIR/SubtitleFilter.swift" "$DIR/SentenceJoiner.swift" "$DIR/InfoBox.swift" "$DIR/ScreenText.swift" "$DIR/BubbleColor.swift" \
-  "$CORE/SubtitleStabilizer.swift" "$CORE/OcrNoise.swift" "$CORE/TextMatch.swift" "$CORE/GameEnglish.swift" -o "$WORK/AltyaziKoprusu"
+  "$CORE/SubtitleStabilizer.swift" "$CORE/OcrNoise.swift" "$CORE/TextMatch.swift" "$CORE/GameEnglish.swift" -o "$WORK/Ludora"
 
 echo "==> Paket hazırlanıyor: $APP"
 rm -rf "$APP"
 mkdir -p "$MACOS" "$RES"
-cp "$WORK/AltyaziKoprusu" "$MACOS/AltyaziKoprusu"
-chmod +x "$MACOS/AltyaziKoprusu"
+cp "$WORK/Ludora" "$MACOS/Ludora"
+chmod +x "$MACOS/Ludora"
 
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -33,19 +33,19 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <plist version="1.0">
 <dict>
 	<key>CFBundleExecutable</key>
-	<string>AltyaziKoprusu</string>
+	<string>Ludora</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.altyazikoprusu.mac</string>
 	<key>CFBundleName</key>
-	<string>Altyazı Köprüsü</string>
+	<string>Ludora</string>
 	<key>CFBundleDisplayName</key>
-	<string>Altyazı Köprüsü</string>
+	<string>Ludora</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.7.4</string>
+	<string>1.7.5</string>
 	<key>CFBundleVersion</key>
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
@@ -53,9 +53,9 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSScreenCaptureUsageDescription</key>
-	<string>Altyazı Köprüsü, PS5 oyun görüntüsünü analiz ederek altyazıları Türkçeye çevirir.</string>
+	<string>Ludora, PS5 oyun görüntüsünü analiz ederek altyazıları Türkçeye çevirir.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Altyazı Köprüsü, çevrilen altyazıları göndermek için yerel ağdaki PS5 ve televizyonu bulur.</string>
+	<string>Ludora, çevrilen altyazıları göndermek için yerel ağdaki PS5 ve televizyonu bulur.</string>
 </dict>
 </plist>
 PLIST
