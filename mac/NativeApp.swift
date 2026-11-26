@@ -1786,6 +1786,10 @@ final class AppState {
     @ObservationIgnored private var screenKinds: [String: ScreenKind] = [:]
     /// Araç paneli: hücre başına bir TV öğesi (yuva "vehicle" tek, çok öğeli).
     @ObservationIgnored private var vehicleItems: [[String: Any]] = []
+    /// Düğme istemleri: hücre başına bir TV öğesi (yuva "prompt").
+    @ObservationIgnored private var promptItems: [[String: Any]] = []
+    /// İstem MT önbelleği: kaynak -> Türkçe (BÜYÜK HARF); boş dize = çeviri kaynakla aynı (ad), atlanır.
+    @ObservationIgnored private var promptMTCache: [String: String] = [:]
     @ObservationIgnored private var screenGen: [String: Int] = [:]
     @ObservationIgnored private var lastScreenMode: ScreenMode = .game
     /// Ekran geçişinin (debounce edilmiş) modu menu/map/phone iken altyazı hattı susturulur.
@@ -2497,8 +2501,8 @@ final class AppState {
         self.sentenceJoiner.reset()
         self.fillerTask?.cancel()
         self.resendGuard.reset()
-        screenTracker.reset(); screenSeq += 1; screenItems = [:]; screenKinds = [:]; vehicleItems = []; screenGen = [:]; lastScreenMode = .game; subtitleSuppressedByScreenMode = false
-        for k in ["objective", "info", "notify", "description", "vehicle"] { server.clearScreen(region: k) }
+        screenTracker.reset(); screenSeq += 1; screenItems = [:]; screenKinds = [:]; vehicleItems = []; promptItems = []; screenGen = [:]; lastScreenMode = .game; subtitleSuppressedByScreenMode = false
+        for k in ["objective", "info", "notify", "description", "vehicle", "prompt"] { server.clearScreen(region: k) }
         self.liveInfo = ""
         self.liveEnglish = "PS5 Canlı Akışı Bekleniyor"
         self.liveTurkish = "Çeviri Durduruldu"
@@ -2905,7 +2909,7 @@ final class AppState {
     private func screenKindEnabled(_ k: ScreenKind) -> Bool {
         switch k {
         case .objective: return objectiveEnabled
-        case .info, .vehicle: return infoEnabled
+        case .info, .vehicle, .prompt: return infoEnabled
         case .notify: return notifyEnabled
         case .description: return descriptionEnabled
         case .phone: return notifyEnabled
@@ -2941,6 +2945,12 @@ final class AppState {
             // Kart/kutu bölgesinin açık ya da koyu zemini (TV'deki Türkçe kartın temasını seçer).
             var themes: [String: String] = [:]
             for b in result.blocks { themes[b.slot] = Self.theme(of: frame, box: b.box) }
+            // Ayna renkleri: kart zemini ve yazı rengi (notify, description, info, telefon).
+            var mirrors: [String: (bg: String, fg: String)] = [:]
+            for b in result.blocks where b.kind == .notify || b.kind == .description || b.kind == .info || b.kind == .phone {
+                let area = b.kind == .phone ? (result.phone?.box ?? b.box) : b.box
+                if let c = BubbleColor.mirrorColors(in: frame, box: area) { mirrors[b.slot] = c }
+            }
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.screenBusy = false
@@ -2985,7 +2995,8 @@ final class AppState {
                         self.screenGen[block.slot, default: 0] += 1
                         let gen = self.screenGen[block.slot]!
                         let theme = themes[block.slot] ?? "dark"
-                        Task { await self.translateScreenBlock(block, gen: gen, theme: theme, dbg: dbg) }
+                        let colors = mirrors[block.slot]
+                        Task { await self.translateScreenBlock(block, gen: gen, theme: theme, colors: colors, dbg: dbg) }
                     }
                 }
             }
@@ -3007,26 +3018,40 @@ final class AppState {
         return mean > 0.55 ? "light" : "dark"
     }
 
-    private func translateScreenBlock(_ b: ScreenBlock, gen: Int, theme: String, dbg: Bool) async {
-        if !b.messages.isEmpty { await translatePhoneConversation(b, gen: gen, theme: theme, dbg: dbg); return }
+    private func translateScreenBlock(_ b: ScreenBlock, gen: Int, theme: String, colors: (bg: String, fg: String)? = nil, dbg: Bool) async {
+        if !b.messages.isEmpty { await translatePhoneConversation(b, gen: gen, theme: theme, colors: colors, dbg: dbg); return }
         if b.kind == .vehicle { await translateVehicleBlock(b, gen: gen, theme: theme, dbg: dbg); return }
+        if b.kind == .prompt { await translatePromptBlock(b, gen: gen, theme: theme, dbg: dbg); return }
         // Gövde "\n" ile ayrılmış parçalardan oluşabilir (başlık/gövde); her parça ayrı çevrilir.
+        // Harfsiz parça (para/sayı/kesir) çevirmene gitmez; "GOAL $1,400 / $5,000" için yalnızca sözcük kısmı çevrilir.
         var parts: [String] = []
-        for seg in b.text.components(separatedBy: "\n") where !seg.isEmpty {
+        for rawSeg in b.text.components(separatedBy: "\n") where !rawSeg.isEmpty {
+            let seg = ScreenText.normalizeMoneyFraction(rawSeg)
+            if ScreenText.isPassThroughSegment(seg) { parts.append(seg); continue }
+            if let (words, amount) = ScreenText.splitWordsAndAmount(seg) {
+                let tr: String
+                if words.uppercased() == "GOAL" { tr = "HEDEF" }
+                else {
+                    let r = await translateText(GameEnglish.plain(words))
+                    guard let t = r.text else { await MainActor.run { self.screenTracker.forgetShown(slot: b.slot) }; return }
+                    tr = words == words.uppercased() ? t.uppercased(with: Locale(identifier: "tr")) : t
+                }
+                parts.append("\(tr) \(amount)"); continue
+            }
             let r = await translateText(GameEnglish.plain(seg))
             guard let t = r.text else { await MainActor.run { self.screenTracker.forgetShown(slot: b.slot) }; return }
             parts.append(t)
         }
         guard !parts.isEmpty else { await MainActor.run { self.screenTracker.forgetShown(slot: b.slot) }; return }
-        var turkish = parts.joined(separator: "\n")
-        var source = b.text
+        let turkish = parts.joined(separator: "\n")
+        let source = b.text
+        // Başlık ayrı alan: gövde `text`te, çevrilmiş BÜYÜK HARF başlık `title`da.
+        var trTitleOut: String?
         if let title = b.title {
             let t = await translateText(GameEnglish.plain(title))
-            let trTitle = (t.text ?? title).uppercased(with: Locale(identifier: "tr"))
-            turkish = "\(trTitle): \(turkish)"
-            source = "\(title): \(b.text)"
+            trTitleOut = (t.text ?? title).uppercased(with: Locale(identifier: "tr"))
         }
-        let finalTurkish = turkish, finalSource = source
+        let finalTurkish = turkish, finalSource = source, finalTitle = trTitleOut
         await MainActor.run {
             guard self.isRunning, self.screenGen[b.slot] == gen else { return }
             if dbg, GlyphNormalizer.tokens(in: b.text) != GlyphNormalizer.tokens(in: finalTurkish) {
@@ -3036,6 +3061,8 @@ final class AppState {
             // Estetik protokolü: Türkçe kart İngilizce arayüz öğesinin tam üstünü kaplar ("over"); tema kutu bölgesinin parlaklığından.
             var item: [String: Any] = ["text": finalTurkish, "source": finalSource, "box": box, "line": b.lineHeight, "placement": Self.screenPlacement(b.kind), "theme": theme]
             if let sp = b.speaker { item["speaker"] = sp }
+            if let tt = finalTitle, let src = b.title { item["title"] = tt; item["titleSource"] = src }
+            if let c = colors, b.kind == .notify || b.kind == .description || b.kind == .info { item["mirror"] = true; item["bg"] = c.bg; item["fg"] = c.fg }
             self.screenItems[b.slot] = item
             self.screenKinds[b.slot] = b.kind
             self.liveInfo = finalTurkish
@@ -3075,8 +3102,48 @@ final class AppState {
         }
     }
 
+    /// Düğme istemleri: sözlük, yoksa normal çevirmen (BÜYÜK HARF, kaynak başına bellek önbelleği). Çeviri kaynakla aynıysa
+    /// (ROSCOE gibi ad) hücre atlanır. Sondaki sayaç ("(0/3)") çevrilmeden korunur.
+    private func translatePromptBlock(_ b: ScreenBlock, gen: Int, theme: String, dbg: Bool) async {
+        var items: [[String: Any]] = []
+        var shown: [String] = []
+        let tr = Locale(identifier: "tr")
+        func fold(_ s: String) -> String { s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+        for row in b.rows {
+            for c in row {
+                var text = c.translated
+                if text == nil {
+                    let (base, counter) = ScreenText.splitCounter(c.source)
+                    var mt: String? = await MainActor.run { self.promptMTCache[base] }
+                    if mt == nil {
+                        let r = await translateText(GameEnglish.plain(base.capitalized))
+                        guard let t = r.text, !t.isEmpty else { await MainActor.run { self.screenTracker.forgetShown(slot: b.slot) }; return }
+                        let up = t.uppercased(with: tr)
+                        mt = fold(up) == fold(base) ? "" : up
+                        let store = mt!
+                        await MainActor.run { self.promptMTCache[base] = store }
+                    }
+                    if mt!.isEmpty { continue }   // ad (ROSCOE): çevrilmez
+                    text = counter.map { mt! + " " + $0 } ?? mt!
+                }
+                items.append(["text": text!, "source": c.source, "placement": "label", "style": "prompt", "side": "left", "theme": theme,
+                              "line": Double(c.box.height),
+                              "box": ["left": Double(c.box.minX), "top": Double(c.box.minY), "right": Double(c.box.maxX), "bottom": Double(c.box.maxY)]])
+                shown.append(text!)
+            }
+        }
+        let finalItems = items, finalShown = shown.joined(separator: " ")
+        await MainActor.run {
+            guard self.isRunning, self.screenGen[b.slot] == gen else { return }
+            self.promptItems = finalItems
+            self.screenItems[b.slot] = ["text": finalShown]
+            self.screenKinds[b.slot] = b.kind
+            self.sendScreenKind(b.kind)
+        }
+    }
+
     /// Açık telefon konuşması: her balon ayrı çevrilir; TV'ye telefonun yanında tek "beside" sohbet paneli gider.
-    private func translatePhoneConversation(_ b: ScreenBlock, gen: Int, theme: String, dbg: Bool) async {
+    private func translatePhoneConversation(_ b: ScreenBlock, gen: Int, theme: String, colors: (bg: String, fg: String)? = nil, dbg: Bool) async {
         var msgs: [[String: Any]] = []
         var trLines: [String] = []
         for m in b.messages {
@@ -3092,6 +3159,7 @@ final class AppState {
             let box: [String: Double] = ["left": Double(phone.minX), "top": Double(phone.minY), "right": Double(phone.maxX), "bottom": Double(phone.maxY)]
             var item: [String: Any] = ["text": "", "source": b.text, "box": box, "line": b.lineHeight, "placement": "beside", "theme": theme, "messages": msgs]
             if let sp = b.speaker { item["speaker"] = sp }
+            if let c = colors { item["bg"] = c.bg; item["fg"] = c.fg }
             self.screenItems[b.slot] = item
             self.screenKinds[b.slot] = b.kind
             self.liveInfo = finalTr
@@ -3102,7 +3170,8 @@ final class AppState {
     /// Bir türün şu an görünen tüm yuvalarını TV'ye gönderir; hiç yoksa o türü temizler.
     private func sendScreenKind(_ kind: ScreenKind) {
         let slots = screenKinds.filter { $0.value == kind }.map(\.key).sorted()
-        let items: [[String: Any]] = kind == .vehicle ? (slots.isEmpty ? [] : vehicleItems) : slots.compactMap { screenItems[$0] }
+        let items: [[String: Any]] = kind == .vehicle ? (slots.isEmpty ? [] : vehicleItems)
+            : kind == .prompt ? (slots.isEmpty ? [] : promptItems) : slots.compactMap { screenItems[$0] }
         if items.isEmpty { server.clearScreen(region: kind.rawValue); if screenItems.isEmpty { liveInfo = "" } }
         else { server.sendScreen(region: kind.rawValue, items: items, durationMs: kind == .vehicle ? 60000 : 15000) }
     }

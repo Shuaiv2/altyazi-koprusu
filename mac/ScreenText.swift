@@ -17,7 +17,7 @@ public struct ScreenLine: Equatable {
 
 public enum ScreenMode: String, Equatable { case game, map, menu, phone }
 
-public enum ScreenKind: String, Equatable { case objective, info, notify, description, phone, vehicle }
+public enum ScreenKind: String, Equatable { case objective, info, notify, description, phone, vehicle, prompt }
 
 /// Araç bilgi panelindeki tek hücre (etiket ya da sözcük değer). Sayı/para/puan değerleri hücre olmaz (dokunulmaz).
 public struct VehicleCell: Equatable {
@@ -50,9 +50,9 @@ public struct ScreenBlock: Equatable {
     public var slot: String
     /// Yalnızca açık telefon konuşması: sıralı mesajlar (text = hepsi "\n" ile birleşik). speaker = konuşma başlığındaki ad.
     public var messages: [PhoneMessage] = []
-    /// Yalnızca araç paneli (.vehicle): satırlar halinde hücreler.
+    /// Yalnızca araç paneli (.vehicle) ve düğme istemleri (.prompt): satırlar halinde hücreler.
     public var rows: [[VehicleCell]] = []
-    /// Araç paneli için izleyici anahtarı: her hücrenin kanonik (sözlük çevirisi ya da sadeleşmiş kaynak) metni.
+    /// Araç paneli / istemler için izleyici anahtarı: her hücrenin kanonik (sözlük çevirisi ya da sadeleşmiş kaynak) metni.
     var vehicleSignature: String {
         rows.flatMap { $0 }.map { $0.translated ?? TextMatch.normalize($0.source) }.joined(separator: "|")
     }
@@ -182,18 +182,152 @@ public enum ScreenText {
             vehicle = v.block
             lines = lines.enumerated().filter { !v.claimed.contains($0.offset) }.map(\.element)
         }
+        // Düğme istemleri (sağ alt): tüm modlarda; kullanılan satırlar başka bloğa girmez.
+        let promptDet = detectPrompts(lines)
         if base != .map, let (info, chain) = detectPhone(lines) {
-            let blocks = info.isList ? [] : phoneBlocks(chain, box: info.box, bubbleBlue: bubbleBlue)
+            var blocks = info.isList ? [] : phoneBlocks(chain, box: info.box, bubbleBlue: bubbleBlue)
+            if let p = promptDet?.block { blocks.append(p); blocks.sort { $0.box.minY < $1.box.minY } }
             return (.phone, blocks, info)
         }
+        if let p = promptDet { lines = lines.enumerated().filter { !p.claimed.contains($0.offset) }.map(\.element) }
         let items = prepare(lines)
         switch base {
         case .game:
             var blocks = gameBlocks(items)
-            if let v = vehicle { blocks.append(v); blocks.sort { $0.box.minY < $1.box.minY } }
+            if let v = vehicle { blocks.append(v) }
+            if let p = promptDet?.block { blocks.append(p) }
+            blocks.sort { $0.box.minY < $1.box.minY }
             return (.game, blocks, nil)
-        default: return (base, descriptionBlocks(items), nil)
+        default:
+            var blocks = descriptionBlocks(items)
+            if let p = promptDet?.block { blocks.append(p); blocks.sort { $0.box.minY < $1.box.minY } }
+            return (base, blocks, nil)
         }
+    }
+
+    // MARK: Düğme istemleri (sağ alt)
+
+    /// İngilizce istem -> BÜYÜK HARF Türkçe. Anahtarlar TextMatch.normalize biçimindedir.
+    static let promptGlossary: [String: String] = [
+        "add marker": "İŞARET EKLE", "set destination": "HEDEF BELİRLE", "remove destination": "HEDEFİ KALDIR", "recenter": "ORTALA",
+        "close menu": "MENÜYÜ KAPAT", "2d view": "2B GÖRÜNÜM", "3d view": "3B GÖRÜNÜM", "back": "GERİ", "exit": "ÇIK",
+        "select": "SEÇ", "scroll": "KAYDIR", "send": "GÖNDER", "rerack": "YERİNE KOY", "put down": "BIRAK", "put away": "KALDIR",
+        "lower": "İNDİR", "lift": "KALDIR", "throw": "FIRLAT", "move hands": "ELLERİ OYNAT", "leave and dress": "GİYİN VE ÇIK",
+        "leave": "AYRIL", "zoom": "YAKINLAŞTIR", "scrub": "OVALA", "adjust": "AYARLA", "greet": "SELAMLA",
+        "open buckme": "BUCKME'Yİ AÇ", "get up": "KALK", "buy": "SATIN AL", "close": "KAPAT", "take": "AL", "pick up": "AL",
+        "drop": "BIRAK", "enter": "GİR", "talk": "KONUŞ", "interact": "ETKİLEŞİM", "skip": "ATLA", "confirm": "ONAYLA",
+        "cancel": "İPTAL", "continue": "DEVAM", "retry": "TEKRAR DENE", "sit": "OTUR", "stand up": "AYAĞA KALK", "hold": "BASILI TUT",
+        "aim": "NİŞAN AL", "crouch": "ÇÖMEL", "jump": "ZIPLA", "sprint": "KOŞ", "hide": "SAKLAN", "search": "ARA", "call": "ARA",
+        "answer": "YANITLA", "hang up": "KAPAT", "reply": "YANITLA", "change": "DEĞİŞTİR", "equip": "KUŞAN", "remove": "ÇIKAR",
+        "try on": "DENE", "pay": "ÖDE", "deposit": "YATIR", "withdraw": "ÇEK", "previous": "ÖNCEKİ", "next": "SONRAKİ",
+        "stow longarms": "UZUN SİLAHLARI KALDIR", "manage": "YÖNET",
+        // Kayıtlı GTA 6 karelerinde görülen ek istem/etiketler.
+        "reps": "TEKRAR", "drink": "İÇ", "eat": "YE", "sleep": "UYU", "open": "AÇ", "remove marker": "İŞARETİ KALDIR",
+        "options": "SEÇENEKLER", "defuse": "ETKİSİZ HALE GETİR", "provoke": "KIŞKIRT", "taunt": "ALAY ET",
+        "view comments": "YORUMLARI GÖR", "damage": "HASAR", "range": "MENZİL", "accuracy": "İSABET", "handling": "KULLANIM",
+        "capacity": "KAPASİTE", "very low": "ÇOK DÜŞÜK", "low": "DÜŞÜK", "medium": "ORTA", "high": "YÜKSEK", "very high": "ÇOK YÜKSEK",
+        "phone": "TELEFON", "reminders": "HATIRLATICILAR", "photo studio": "FOTOĞRAF STÜDYOSU", "marked bills": "İŞARETLİ PARA",
+        "jewelry": "MÜCEVHER", "narcotics": "UYUŞTURUCU", "stash": "ZULA", "stash bag": "ZULA ÇANTASI", "teller": "VEZNEDAR",
+        "local": "YEREL", "vehicle": "ARAÇ", "mods": "MODİFİYE", "you okay": "İYİ MİSİN?", "deadlifts": "DEADLIFT",
+        "tactical rifle": "TAKTİK TÜFEK", "pilot": "PİLOT", "alarm": "ALARM", "tab": "SEKME",
+    ]
+
+    /// Marka/karakter adları ve tabela parçaları: istem değildir, çevrilmez.
+    static let promptSkip: Set<String> = ["fleeca", "apoc", "ubermacht", "übermacht", "vapid", "lucia", "jason", "moses", "ckr",
+                                          "b a n k", "glory", "kingfishers", "hawk little mediator", "willard", "buckme"]
+
+    private static let counterRx = rx("\\s*(\\(\\s*\\d+\\s*/\\s*\\d+\\s*\\))\\s*$")
+    private static let glyphTokenRx = rx("^(?:[OXx0QD©®◯○●×✕△□▽⊗⊙]|\\(|\\)|\\(\\w{1,2}\\)?|\\w\\)|[LR][123]|[^\\p{L}\\p{N}]+)$")
+
+    /// "TAKE AMMO PACK (0/3)" -> ("TAKE AMMO PACK", "(0/3)"); sayaç yoksa ikinci değer nil.
+    public static func splitCounter(_ text: String) -> (base: String, counter: String?) {
+        let t = text.trimmingCharacters(in: .whitespaces)
+        guard let m = counterRx.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)), let r = Range(m.range, in: t), let c = Range(m.range(at: 1), in: t) else { return (t, nil) }
+        return (String(t[..<r.lowerBound]).trimmingCharacters(in: .whitespaces), String(t[c]).replacingOccurrences(of: " ", with: ""))
+    }
+
+    /// OCR'ın istem satırına eklediği denetleyici simgesi belirteçlerini (O, ©, ®, X, (, L3, R3 ...) baştan/sondan atar.
+    public static func stripPromptGlyphs(_ text: String) -> String {
+        var toks = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        // Sayaç ("(0/3)") sondaki simge sayılmaz.
+        func isGlyph(_ t: String) -> Bool { !matches(counterRx, t) && matches(glyphTokenRx, t) }
+        while toks.count > 1, let l = toks.last, isGlyph(l) { toks.removeLast() }
+        while toks.count > 1, let f = toks.first, isGlyph(f) { toks.removeFirst() }
+        // Son sözcüğe yapışık simge ("BACK©")
+        if var l = toks.last, l.count > 3, let c = l.last, "©®◯○●×".contains(c) { l.removeLast(); toks[toks.count - 1] = l }
+        return toks.joined(separator: " ")
+    }
+
+    /// İstem sözlük çevirisi (sayaç korunur); yoksa nil.
+    public static func promptTranslation(_ text: String) -> String? {
+        let (base, counter) = splitCounter(text)
+        let n = TextMatch.normalize(base)
+        guard !n.isEmpty else { return nil }
+        var found = promptGlossary[n]
+        if found == nil {
+            var best: (String, Int)?
+            for (k, v) in promptGlossary where TextMatch.isSimilar(n, k, threshold: 0.85) {
+                let d = abs(k.count - n.count)
+                if best == nil || d < best!.1 { best = (v, d) }
+            }
+            found = best?.0
+        }
+        guard let f = found else { return nil }
+        return counter.map { f + " " + $0 } ?? f
+    }
+
+    /// Sağ alttaki (x≥0.55, y≥0.55) BÜYÜK HARF 1-5 sözcüklü satırlar; her satır bir hücre. Açıklama kartı başlıkları
+    /// (hemen altında küçük harfli gövde satırı olan BÜYÜK HARF satırlar) istem değildir.
+    static func detectPrompts(_ lines: [ScreenLine]) -> (block: ScreenBlock, claimed: Set<Int>)? {
+        var claimed = Set<Int>()
+        var rows: [[VehicleCell]] = []
+        for (i, l) in lines.enumerated() where l.confidence >= 0.5 && l.rect.minX >= 0.55 && l.rect.minY >= 0.55 && l.rect.maxX <= 0.997 && l.rect.maxY <= 1.0 {
+            let raw = l.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let stripped = stripPromptGlyphs(raw)
+            let (base, _) = splitCounter(stripped)
+            guard isCapsOnly(base), letterCount(base) >= 3, (1...5).contains(base.split(whereSeparator: \.isWhitespace).count) else { continue }
+            if promptSkip.contains(TextMatch.normalize(base)) { continue }
+            if matches(moneyRx, base) || matches(clockRx, base) || matches(distanceRx, base) || matches(moneyRx, stripped) { continue }
+            // Açıklama başlığı: hemen altında (≤1.5 satır) sola hizalı küçük harfli gövde satırı var.
+            let isTitle = lines.enumerated().contains { (j, o) in
+                guard j != i, o.confidence >= 0.5, hasLower(o.text) else { return false }
+                let gap = Double(o.rect.minY - l.rect.maxY)
+                return gap >= -0.004 && gap < 1.5 * Double(max(l.rect.height, o.rect.height)) && abs(Double(o.rect.minX - l.rect.minX)) <= 0.05
+            }
+            if isTitle { continue }
+            claimed.insert(i)
+            rows.append([VehicleCell(box: l.rect, source: stripped, translated: promptTranslation(stripped), isValue: false)])
+        }
+        guard !rows.isEmpty else { return nil }
+        rows.sort { $0[0].box.minY < $1[0].box.minY }
+        let cells = rows.flatMap { $0 }
+        let box = cells.dropFirst().reduce(cells[0].box) { $0.union($1.box) }
+        let hs = cells.map { Double($0.box.height) }.sorted()
+        return (ScreenBlock(kind: .prompt, text: cells.map(\.source).joined(separator: "\n"), title: nil, speaker: nil, box: box,
+                            lineHeight: hs[hs.count / 2], slot: "prompt", rows: rows), claimed)
+    }
+
+    // MARK: Para kesri ("$1,400 / $5,000")
+
+    private static let moneyFracRx = rx("([\\$€£]\\s?\\d[\\d,\\.]*)\\s*(?:\\s[1|Il!/]\\s|[|/])\\s*([\\$€£]\\s?\\d[\\d,\\.]*)")
+
+    /// OCR'ın "<para> 1 <para>" / "<para> | <para>" okumasını "<para> / <para>" yapar.
+    public static func normalizeMoneyFraction(_ text: String) -> String {
+        moneyFracRx.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "$1 / $2")
+    }
+
+    /// Harf içermeyen (para/sayı/eğik çizgi) parça çevirmene gitmez, olduğu gibi geçer.
+    public static func isPassThroughSegment(_ seg: String) -> Bool { !seg.contains(where: \.isLetter) }
+
+    /// "GOAL $1,400 / $5,000" -> ("GOAL", "$1,400 / $5,000"): yalnızca sözcük kısmı çevrilir, sayılar aynen kalır.
+    public static func splitWordsAndAmount(_ seg: String) -> (words: String, amount: String)? {
+        let r = rx("^([\\p{L}][\\p{L}' \\-]*?)\\s+([\\$€£]\\s?\\d.*|\\d[\\d,\\.]*(?:\\s*/.*)?)$")
+        let t = seg.trimmingCharacters(in: .whitespaces)
+        guard let m = r.firstMatch(in: t, range: NSRange(t.startIndex..., in: t)), let a = Range(m.range(at: 1), in: t), let b = Range(m.range(at: 2), in: t) else { return nil }
+        let amount = String(t[b])
+        // Tutar kısmında harf olmamalı
+        guard !amount.contains(where: \.isLetter) else { return nil }
+        return (String(t[a]), amount)
     }
 
     // MARK: Araç bilgi paneli (GTA 6)
@@ -509,9 +643,9 @@ public struct ScreenTracker {
 
     private static func produces(_ mode: ScreenMode, _ kind: ScreenKind) -> Bool {
         switch mode {
-        case .game: return kind == .objective || kind == .info || kind == .notify || kind == .vehicle
-        case .map, .menu: return kind == .description
-        case .phone: return kind == .phone
+        case .game: return kind == .objective || kind == .info || kind == .notify || kind == .vehicle || kind == .prompt
+        case .map, .menu: return kind == .description || kind == .prompt
+        case .phone: return kind == .phone || kind == .prompt
         }
     }
 
@@ -538,8 +672,8 @@ public struct ScreenTracker {
             guard seen.insert(b.slot).inserted else { continue }
             var t = tracks[b.slot] ?? Track(kind: b.kind)
             t.absentSince = nil
-            if b.kind == .vehicle {
-                // Araç paneli: kanonik hücre metni birebir aynı 2 ardışık geçişte kararlı; sayfa/içerik değişince yeniden gönder.
+            if b.kind == .vehicle || b.kind == .prompt {
+                // Araç paneli / istemler: kanonik hücre metni birebir aynı 2 ardışık geçişte kararlı; sayfa/içerik değişince yeniden gönder.
                 let sig = b.vehicleSignature
                 if sig == t.candidate { t.stable += 1 } else { t.stable = 1 }
                 t.candidate = sig

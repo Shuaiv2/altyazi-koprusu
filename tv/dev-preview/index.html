@@ -71,6 +71,11 @@
         }, 500);
       });
     }
+    // ?bg=URL: gerçek oyun karesini zemin yapar (ayna stili denemeleri için; 1920x1080'e gerilir).
+    (function () {
+      var m = /[?&]bg=([^&]+)/.exec(location.search);
+      if (m) document.body.style.cssText += ';background:#000 url("' + decodeURIComponent(m[1]) + '") 0 0 / 100% 100% no-repeat;width:1920px;height:1080px;margin:0';
+    })();
     // r/g/b tuşlarını kumandanın renk tuşlarına çevirir.
     var COLOR_KEYS = { r: 403, g: 404, b: 406 };
     document.addEventListener('keydown', function (e) {

@@ -22,6 +22,13 @@ func lines(_ rows: [Row]) -> [ScreenLine] {
 let psToast: Row = (0.411, 0.047, 0.589, 0.075, 1.0, "A Uzaktan Oynama baglandi.")
 let hud: [Row] = [(0.924, 0.026, 0.962, 0.054, 1.0, "$500"), (0.911, 0.059, 0.962, 0.090, 1.0, "$2,441")]
 
+/// Düğme istemleri (.prompt) çıkarılmış analiz: eski testler yalnızca diğer blokları denetler; istemler aşağıda ayrıca sınanır.
+func analyzeNP(_ l: [ScreenLine], bubbleBlue: ((CGRect) -> Bool?)? = nil) -> (mode: ScreenMode, blocks: [ScreenBlock], phone: PhoneInfo?) {
+    var r = ScreenText.analyze(l, bubbleBlue: bubbleBlue)
+    r.blocks.removeAll { $0.kind == .prompt }
+    return r
+}
+
 @main struct Tests {
 static func main() {
 // --- Kare 0054: harita, açıklama + liste + istemler
@@ -36,7 +43,7 @@ let f54 = lines([psToast,
     (0.905, 0.757, 0.961, 0.781, 1.0, "RECENTER"), (0.917, 0.806, 0.959, 0.830, 1.0, "2D VIEW"),
     (0.891, 0.852, 0.961, 0.879, 1.0, "ADD MARKER"), (0.871, 0.902, 0.959, 0.925, 1.0, "SET DESTINATION"),
     (0.894, 0.951, 0.959, 0.974, 1.0, "CLOSE MENU")] + hud.map { $0 })
-let r54 = ScreenText.analyze(f54)
+let r54 = analyzeNP(f54)
 expect(r54.mode == .map, "0054 mod map: \(r54.mode)")
 expect(r54.blocks.count == 1, "0054 tek blok: \(r54.blocks.map(\.text))")
 expect(r54.blocks.first?.kind == .description, "0054 tür")
@@ -51,14 +58,14 @@ let f58 = lines([psToast,
     (0.545, 0.449, 0.682, 0.481, 1.0, "247 GAS - KEY LENTO"),
     (0.547, 0.496, 0.781, 0.525, 1.0, "Fill up on fuel or quickly service your"), (0.546, 0.532, 0.597, 0.559, 1.0, "vehicle."),
     (0.905, 0.757, 0.961, 0.781, 1.0, "RECENTER"), (0.891, 0.852, 0.961, 0.879, 1.0, "ADD MARKER"), (0.894, 0.951, 0.959, 0.974, 1.0, "CLOSE MENU")])
-let r58 = ScreenText.analyze(f58)
+let r58 = analyzeNP(f58)
 expect(r58.blocks.map(\.text) == ["Fill up on fuel or quickly service your vehicle."] && r58.blocks.first?.title == "247 GAS - KEY LENTO", "0058: \(r58.blocks.map(\.text)) \(r58.blocks.first?.title ?? "")")
 
 // --- Kare 0086: sol üst bilgi kutusu (2. satırı simge sağa itmiş)
 let f86 = lines([psToast, (0.689, 0.098, 0.837, 0.199, 0.5, "FLEECA"),
     (0.025, 0.282, 0.218, 0.308, 1.0, "Call Joey from your Contacts"), (0.048, 0.312, 0.225, 0.339, 1.0, "or check the engine to tow"),
     (0.025, 0.344, 0.176, 0.370, 1.0, "and repair your vehicle."), (0.685, 0.470, 0.705, 0.488, 0.5, "58 ft")])
-let r86 = ScreenText.analyze(f86)
+let r86 = analyzeNP(f86)
 expect(r86.mode == .game, "0086 mod game")
 expect(r86.blocks.count == 1 && r86.blocks[0].kind == .info && r86.blocks[0].text == "Call Joey from your Contacts or check the engine to tow and repair your vehicle.", "0086: \(r86.blocks.map(\.text))")
 
@@ -67,35 +74,35 @@ let f114 = lines([psToast, (0.802, 0.098, 0.815, 0.121, 0.5, "FL"), (0.330, 0.33
     (0.249, 0.176, 0.326, 0.202, 0.5, "BANK"), (0.438, 0.881, 0.563, 0.915, 1.0, "Mind if I drive?"),
     (0.831, 0.811, 0.871, 0.830, 1.0, "Jason"), (0.805, 0.850, 0.965, 0.876, 1.0, "Hey I'm at the bank. Let's"),
     (0.804, 0.881, 0.930, 0.907, 1.0, "set up this account."), (0.898, 0.940, 0.951, 0.964, 1.0, "→ Lucia")])
-let r114 = ScreenText.analyze(f114)
+let r114 = analyzeNP(f114)
 expect(r114.blocks.count == 1 && r114.blocks[0].kind == .notify, "0114 tek notify: \(r114.blocks.map(\.text))")
 expect(r114.blocks.first?.text == "Hey I'm at the bank. Let's set up this account.", "0114 metin: \(r114.blocks.first?.text ?? "nil")")
 expect(r114.blocks.first?.speaker == "Jason", "0114 gönderen")
 
 // --- Kare 0065 ve 0115: diğer mesajlar
-let r65 = ScreenText.analyze(lines([(0.823, 0.814, 0.869, 0.835, 0.5, "Kenton"), (0.798, 0.863, 0.955, 0.884, 1.0, "Still can't believe u found"),
+let r65 = analyzeNP(lines([(0.823, 0.814, 0.869, 0.835, 0.5, "Kenton"), (0.798, 0.863, 0.955, 0.884, 1.0, "Still can't believe u found"),
     (0.797, 0.897, 0.969, 0.922, 1.0, "them doubloons. U got that"), (0.795, 0.928, 0.972, 0.953, 1.0, "luck boy. Need u out there...")]))
 expect(r65.blocks.first?.text == "Still can't believe u found them doubloons. U got that luck boy. Need u out there..." && r65.blocks.first?.speaker == "Kenton", "0065: \(r65.blocks.map(\.text))")
-let r115 = ScreenText.analyze(lines([(0.833, 0.868, 0.869, 0.889, 1.0, "Lucia"), (0.808, 0.904, 0.969, 0.933, 1.0, "OMW get started without"), (0.810, 0.941, 0.834, 0.959, 1.0, "me.")]))
+let r115 = analyzeNP(lines([(0.833, 0.868, 0.869, 0.889, 1.0, "Lucia"), (0.808, 0.904, 0.969, 0.933, 1.0, "OMW get started without"), (0.810, 0.941, 0.834, 0.959, 1.0, "me.")]))
 expect(r115.blocks.first?.text == "OMW get started without me." && r115.blocks.first?.speaker == "Lucia", "0115: \(r115.blocks.map(\.text))")
 
 // --- Kare 0022: üst sağ bildirim; arama bitti arayüzü yok
 let f22 = lines([psToast] + hud + [(0.869, 0.258, 0.956, 0.284, 1.0, "Map updated"), (0.680, 0.745, 0.744, 0.831, 0.5, "Gianaás"),
     (0.823, 0.907, 0.859, 0.930, 1.0, "Lucia"), (0.823, 0.940, 0.891, 0.964, 1.0, "Call Ended")])
-let r22 = ScreenText.analyze(f22)
+let r22 = analyzeNP(f22)
 expect(r22.blocks.count == 1 && r22.blocks[0].text == "Map updated" && r22.blocks[0].kind == .notify && r22.blocks[0].slot == "notify-top", "0022: \(r22.blocks.map(\.text))")
 
 // --- 0039 ve 0107 üst sağ bildirimler, 0023 gönderensiz alt sağ bildirim
-expect(ScreenText.analyze(lines([(0.907, 0.384, 0.962, 0.412, 1.0, "Fuel low")])).blocks.map(\.text) == ["Fuel low"], "0039")
-expect(ScreenText.analyze(lines([(0.791, 0.385, 0.984, 0.413, 1.0, "'70 Ganado has been repaired")])).blocks.map(\.text) == ["'70 Ganado has been repaired"], "0107")
-let r23 = ScreenText.analyze(lines([(0.826, 0.904, 0.958, 0.931, 1.0, "Workout Incomplete"), (0.825, 0.936, 0.891, 0.963, 1.0, "Gains lost")]))
+expect(analyzeNP(lines([(0.907, 0.384, 0.962, 0.412, 1.0, "Fuel low")])).blocks.map(\.text) == ["Fuel low"], "0039")
+expect(analyzeNP(lines([(0.791, 0.385, 0.984, 0.413, 1.0, "'70 Ganado has been repaired")])).blocks.map(\.text) == ["'70 Ganado has been repaired"], "0107")
+let r23 = analyzeNP(lines([(0.826, 0.904, 0.958, 0.931, 1.0, "Workout Incomplete"), (0.825, 0.936, 0.891, 0.963, 1.0, "Gains lost")]))
 expect(r23.blocks.first?.text == "Workout Incomplete Gains lost" && r23.blocks.first?.speaker == nil, "0023: \(r23.blocks.map(\.text))")
 
 // --- Kare 0116 / 0124: görev hedefi (tabelalar ve BÜYÜK HARF dışarıda)
-let r116 = ScreenText.analyze(lines([psToast, (0.077, 0.005, 0.244, 0.101, 1.0, "FLEECA"), (0.419, 0.106, 0.446, 0.119, 1.0, "\"NOTICE"),
+let r116 = analyzeNP(lines([psToast, (0.077, 0.005, 0.244, 0.101, 1.0, "FLEECA"), (0.419, 0.106, 0.446, 0.119, 1.0, "\"NOTICE"),
     (0.375, 0.946, 0.625, 0.977, 1.0, "Ask about setting up a bank account")]))
 expect(r116.blocks.count == 1 && r116.blocks[0].kind == .objective && r116.blocks[0].text == "Ask about setting up a bank account", "0116: \(r116.blocks.map(\.text))")
-let r124 = ScreenText.analyze(lines([(0.424, 0.945, 0.576, 0.982, 1.0, "Speak to the manager"), (0.872, 0.035, 1.001, 0.107, 1.0, "NOTICE"),
+let r124 = analyzeNP(lines([(0.424, 0.945, 0.576, 0.982, 1.0, "Speak to the manager"), (0.872, 0.035, 1.001, 0.107, 1.0, "NOTICE"),
     (0.858, 0.223, 0.999, 0.268, 1.0, "ALL ACTIVITIES"), (0.870, 0.262, 0.984, 0.295, 1.0, "MONITORED")]))
 expect(r124.blocks.map(\.text) == ["Speak to the manager"], "0124: \(r124.blocks.map(\.text))")
 
@@ -103,46 +110,46 @@ expect(r124.blocks.map(\.text) == ["Speak to the manager"], "0124: \(r124.blocks
 let f119 = lines([psToast, (0.109, 0.111, 0.156, 0.127, 1.0, "Sometimes"), (0.109, 0.126, 0.166, 0.142, 1.0, "landlords just"),
     (0.112, 0.142, 0.174, 0.158, 1.0, "can't get ahead."), (0.521, 0.208, 0.577, 0.259, 1.0, "'NOTICE"), (0.521, 0.322, 0.573, 0.373, 1.0, "ALL ACTIVITIES"),
     (0.523, 0.344, 0.567, 0.390, 1.0, "MONITORED"), (0.527, 0.366, 0.564, 0.410, 1.0, "BY VIDEO"), (0.520, 0.390, 0.558, 0.424, 1.0, "• CAMERA")])
-expect(ScreenText.analyze(f119).blocks.isEmpty, "0119 boş: \(ScreenText.analyze(f119).blocks.map(\.text))")
+expect(analyzeNP(f119).blocks.isEmpty, "0119 boş: \(analyzeNP(f119).blocks.map(\.text))")
 let f120 = lines([psToast, (0.467, 0.075, 0.645, 0.173, 1.0, "FLEEA"), (0.496, 0.184, 0.606, 0.229, 1.0, "BANK"), (0.711, 0.342, 0.790, 0.374, 1.0, "ALL ACTIVITIES")])
-expect(ScreenText.analyze(f120).blocks.isEmpty, "0120 boş")
+expect(analyzeNP(f120).blocks.isEmpty, "0120 boş")
 // 0111: sol üstte pano (x0 0.097 > 0.08), sağda küçük pano (ince, 3 satır), kenara değen yazı
 let f111 = lines([psToast, (0.097, 0.190, 0.186, 0.221, 1.0, "Why wait years"), (0.099, 0.219, 0.147, 0.248, 1.0, "for your"), (0.102, 0.245, 0.174, 0.272, 1.0, "inheritance?"),
     (0.808, 0.457, 0.846, 0.473, 1.0, "Sometimes"), (0.808, 0.470, 0.852, 0.483, 1.0, "landlords just"), (0.807, 0.483, 0.856, 0.496, 1.0, "can't get ahead."),
     (0.946, 0.625, 0.999, 0.643, 1.0, "Speak to an ach"), (0.214, 0.568, 0.250, 0.592, 0.5, "FLE CA")])
-expect(ScreenText.analyze(f111).blocks.isEmpty, "0111 boş: \(ScreenText.analyze(f111).blocks.map(\.text))")
+expect(analyzeNP(f111).blocks.isEmpty, "0111 boş: \(analyzeNP(f111).blocks.map(\.text))")
 
 // Küçük harfle başlayan parça (kesik pano, kare 0215)
-expect(ScreenText.analyze(lines([(0.030, 0.300, 0.150, 0.326, 1.0, "can't get ahead.")])).blocks.isEmpty, "küçük harfle başlayan parça elenir")
+expect(analyzeNP(lines([(0.030, 0.300, 0.150, 0.326, 1.0, "can't get ahead.")])).blocks.isEmpty, "küçük harfle başlayan parça elenir")
 
 // --- Yalnız PS bildirimi, GPS, para, saat, arama arayüzü: asla
 let junk = lines([psToast, (0.40, 0.047, 0.60, 0.075, 1.0, "Remote Play connected"), (0.03, 0.35, 0.12, 0.38, 1.0, "Turn Left"), (0.03, 0.39, 0.08, 0.41, 1.0, "9 ft"),
     (0.03, 0.42, 0.10, 0.44, 1.0, "0.56 mi"), (0.417, 0.189, 0.467, 0.217, 1.0, "1:19 pm"),
     (0.85, 0.86, 0.95, 0.88, 1.0, "Lucia"), (0.85, 0.89, 0.97, 0.91, 1.0, "Incoming Call..."), (0.88, 0.92, 0.94, 0.94, 1.0, "00:03")] + hud.map { $0 })
-expect(ScreenText.analyze(junk).blocks.isEmpty, "gürültü boş: \(ScreenText.analyze(junk).blocks.map(\.text))")
+expect(analyzeNP(junk).blocks.isEmpty, "gürültü boş: \(analyzeNP(junk).blocks.map(\.text))")
 // Oyun modunda haritadaki türden serbest cümle üretilmez
-expect(ScreenText.analyze(lines([(0.547, 0.483, 0.797, 0.509, 1.0, "Lucia needs a bank account to get her"), (0.547, 0.519, 0.801, 0.545, 1.0, "community service payments.")])).blocks.isEmpty, "game modunda serbest metin yok")
+expect(analyzeNP(lines([(0.547, 0.483, 0.797, 0.509, 1.0, "Lucia needs a bank account to get her"), (0.547, 0.519, 0.801, 0.545, 1.0, "community service payments.")])).blocks.isEmpty, "game modunda serbest metin yok")
 // Düşük güven
-expect(ScreenText.analyze(lines([(0.375, 0.946, 0.625, 0.977, 0.3, "Ask about setting up a bank account")])).blocks.isEmpty, "düşük güven elenir")
+expect(analyzeNP(lines([(0.375, 0.946, 0.625, 0.977, 0.3, "Ask about setting up a bank account")])).blocks.isEmpty, "düşük güven elenir")
 // Kenara değen bildirim
-expect(ScreenText.analyze(lines([(0.791, 0.385, 0.999, 0.413, 1.0, "'70 Ganado has been repaired")])).blocks.isEmpty, "kenara değen elenir")
+expect(analyzeNP(lines([(0.791, 0.385, 0.999, 0.413, 1.0, "'70 Ganado has been repaired")])).blocks.isEmpty, "kenara değen elenir")
 
 // --- Duraklatma menüsü ayar açıklaması (SENTETİK: gerçek karede ayar menüsü yoktu; yerleşim gerçek haritadaki açıklama panelinden)
 let menuF = lines([psToast, (0.060, 0.180, 0.140, 0.208, 1.0, "AIMING"), (0.060, 0.250, 0.180, 0.278, 1.0, "Camera Sensitivity"),
     (0.520, 0.300, 0.700, 0.330, 1.0, "CAMERA SENSITIVITY"),
     (0.520, 0.345, 0.830, 0.372, 1.0, "Adjusts how fast the camera turns while"), (0.520, 0.380, 0.780, 0.407, 1.0, "aiming a weapon on foot."),
     (0.863, 0.951, 0.903, 0.974, 1.0, "SELECT"), (0.930, 0.951, 0.959, 0.974, 1.0, "BACK")])
-let rm = ScreenText.analyze(menuF)
+let rm = analyzeNP(menuF)
 expect(rm.mode == .menu, "menü modu: \(rm.mode)")
 expect(rm.blocks.count == 1 && rm.blocks[0].text == "Adjusts how fast the camera turns while aiming a weapon on foot." && rm.blocks[0].title == "CAMERA SENSITIVITY", "menü açıklaması: \(rm.blocks.map(\.text))")
 // Gerçek menü kareleri (0183 sol menü listesi): çevrilecek şey yok
-let r183 = ScreenText.analyze(lines([(0.910, 0.126, 0.981, 0.147, 1.0, "CHAPTER 1"), (0.026, 0.287, 0.086, 0.310, 1.0, "Im) Game"), (0.032, 0.352, 0.082, 0.375, 1.0, "• Store"),
+let r183 = analyzeNP(lines([(0.910, 0.126, 0.981, 0.147, 1.0, "CHAPTER 1"), (0.026, 0.287, 0.086, 0.310, 1.0, "Im) Game"), (0.032, 0.352, 0.082, 0.375, 1.0, "• Store"),
     (0.045, 0.421, 0.076, 0.447, 1.0, "Help"), (0.025, 0.486, 0.129, 0.509, 1.0, "[ Photo Studio"), (0.023, 0.550, 0.100, 0.581, 1.0, "ii Settings"),
     (0.760, 0.951, 0.836, 0.974, 1.0, "PHOTO STUDIO"), (0.863, 0.951, 0.903, 0.974, 1.0, "SELECT"), (0.930, 0.951, 0.959, 0.974, 1.0, "BACK")]))
 expect(r183.mode == .menu && r183.blocks.isEmpty, "0183: \(r183.mode) \(r183.blocks.map(\.text))")
 
 // --- Düğme simgesi normalleşmesi
-let r_btn = ScreenText.analyze(lines([(0.375, 0.946, 0.625, 0.977, 1.0, "Press LI to reply now")]))
+let r_btn = analyzeNP(lines([(0.375, 0.946, 0.625, 0.977, 1.0, "Press LI to reply now")]))
 expect(r_btn.blocks.first?.text == "Press L1 to reply now", "glif: \(r_btn.blocks.map(\.text))")
 
 // --- İzleyici
@@ -202,7 +209,7 @@ let f237 = lines([psToast, (0.436, 0.201, 0.493, 0.223, 1.0, "Suggested"), (0.45
     (0.437, 0.417, 0.558, 0.459, 1.0, "Still can't believe u fo..."), (0.393, 0.455, 0.447, 0.488, 1.0, "Messages"), (0.429, 0.509, 0.458, 0.530, 1.0, "Brian"),
     (0.426, 0.531, 0.549, 0.578, 1.0, "Remember, you get y..."), (0.422, 0.587, 0.442, 0.607, 1.0, "Cal"), (0.419, 0.606, 0.541, 0.655, 1.0, "And 2 here. Have fun..."),
     (0.920, 0.902, 0.959, 0.925, 1.0, "SELECT"), (0.930, 0.951, 0.961, 0.972, 1.0, "BACK")])
-let r237 = ScreenText.analyze(f237)
+let r237 = analyzeNP(f237)
 expect(r237.mode == .phone && r237.blocks.isEmpty && r237.phone?.isList == true, "0237 telefon listesi: \(r237.mode) \(r237.blocks.map(\.text))")
 expect(r237.phone.map { $0.box.minX < 0.42 && $0.box.maxX > 0.55 && $0.box.minY < 0.21 && $0.box.maxY > 0.6 } == true, "0237 telefon kutusu: \(String(describing: r237.phone?.box))")
 let f243 = lines([psToast, (0.522, 0.578, 0.568, 0.597, 1.0, "€ Suggested"), (0.541, 0.607, 0.565, 0.620, 1.0, "Donnie"), (0.539, 0.617, 0.611, 0.642, 0.5, "SBW off Sunbelt High."),
@@ -211,7 +218,7 @@ let f243 = lines([psToast, (0.522, 0.578, 0.568, 0.597, 1.0, "€ Suggested"), (
     (0.517, 0.764, 0.595, 0.797, 1.0, "Remember, you get y..."), (0.513, 0.798, 0.526, 0.811, 1.0, "Cal"), (0.509, 0.811, 0.585, 0.840, 1.0, "And 2 here. Have fun."),
     (0.505, 0.839, 0.572, 0.873, 1.0, "Chuck's Gun Shop"), (0.504, 0.857, 0.559, 0.884, 1.0, "Thanks Andrew."), (0.498, 0.887, 0.530, 0.911, 0.5, "BuckMe"),
     (0.496, 0.902, 0.575, 0.940, 1.0, "Welcome to BuckMe,"), (0.920, 0.901, 0.961, 0.926, 1.0, "SELECT"), (0.930, 0.948, 0.978, 0.974, 1.0, "BACK O")])
-let r243 = ScreenText.analyze(f243)
+let r243 = analyzeNP(f243)
 expect(r243.mode == .phone && r243.blocks.isEmpty && r243.phone?.isList == true, "0243 telefon listesi: \(r243.mode) \(r243.blocks.map(\.text))")
 // Aynı SELECT/BACK ile gerçek menü (0183) hâlâ menü
 expect(r183.mode == .menu && r183.phone == nil, "0183 hâlâ menü")
@@ -221,7 +228,7 @@ expect(r183.mode == .menu && r183.phone == nil, "0183 hâlâ menü")
 let convo = lines([(0.60, 0.20, 0.72, 0.23, 1.0, "Hey, you around"), (0.60, 0.23, 0.70, 0.26, 1.0, "later today?"),
     (0.66, 0.34, 0.78, 0.37, 1.0, "Yeah, I can be there"), (0.66, 0.37, 0.76, 0.40, 1.0, "in ten minutes."),
     (0.60, 0.48, 0.72, 0.51, 1.0, "Great, bring the car."), (0.66, 0.60, 0.78, 0.63, 1.0, "On my way now"), (0.930, 0.951, 0.961, 0.972, 1.0, "BACK")])
-let rc = ScreenText.analyze(convo)
+let rc = analyzeNP(convo)
 expect(rc.mode == .phone && rc.phone?.isList == false, "konuşma modu: \(rc.mode) \(String(describing: rc.phone))")
 expect(rc.blocks.count == 1 && rc.blocks[0].kind == .phone && rc.blocks[0].slot == "phone", "konuşma tek blok: \(rc.blocks.map(\.slot))")
 expect(rc.blocks.first?.messages.map(\.text) == ["Hey, you around later today?", "Yeah, I can be there in ten minutes.", "Great, bring the car.", "On my way now"], "konuşma balonları: \(rc.blocks.first?.messages.map(\.text) ?? [])")
@@ -231,7 +238,7 @@ let f238 = lines([psToast, (0.487, 0.199, 0.517, 0.220, 1.0, "Lucia"), (0.424, 0
     (0.402, 0.510, 0.546, 0.562, 1.0, "could meet up at the Rusty"), (0.399, 0.542, 0.527, 0.587, 1.0, "and go from there. That"), (0.397, 0.574, 0.426, 0.592, 1.0, "cool?"),
     (0.434, 0.634, 0.539, 0.677, 1.0, "Yeah, sure. I wanna"), (0.429, 0.665, 0.516, 0.707, 1.0, "see this dinghy."), (0.420, 0.719, 0.515, 0.763, 1.0, "You wanna go we"), (0.417, 0.752, 0.458, 0.778, 1.0, "can go."),
     (0.919, 0.853, 0.959, 0.876, 1.0, "SCROLL"), (0.930, 0.901, 0.959, 0.926, 1.0, "SEND"), (0.930, 0.951, 0.961, 0.972, 1.0, "BACK")])
-let r238 = ScreenText.analyze(f238)
+let r238 = analyzeNP(f238)
 let m238 = r238.blocks.first?.messages ?? []
 expect(r238.mode == .phone && r238.phone?.isList == false && r238.blocks.count == 1 && r238.blocks[0].kind == .phone && m238.count == 3, "0238 konuşma: \(m238.map(\.text))")
 expect(m238.first?.text == "You got this!" && r238.blocks.first?.speaker == "Lucia" && m238[1].text.hasPrefix("Hey! Get this, Kat and Mattia are throwing a party") && m238[1].text.hasSuffix("That cool?"), "0238 metinler/gönderen: \(m238.map(\.text))")
@@ -244,7 +251,7 @@ let liveRows: [Row] = [(0.490, 0.140, 0.540, 0.163, 1.0, "Linda"),
     (0.545, 0.410, 0.676, 0.434, 1.0, "Okay. Thanks."),
     (0.466, 0.490, 0.570, 0.514, 1.0, "Rent. Remember it."), (0.466, 0.514, 0.570, 0.538, 1.0, "Have a nice day. L."),
     (0.540, 0.610, 0.676, 0.634, 1.0, "Yeah I haven't"), (0.540, 0.634, 0.620, 0.658, 1.0, "forgotten."), (0.930, 0.951, 0.961, 0.972, 1.0, "BACK")]
-let rl = ScreenText.analyze(lines(liveRows))
+let rl = analyzeNP(lines(liveRows))
 expect(rl.mode == .phone && rl.phone?.isList == false && rl.blocks.count == 1 && rl.blocks[0].slot == "phone", "canlı: tek blok \(rl.blocks.map(\.slot)) \(rl.mode)")
 let ml = rl.blocks.first?.messages ?? []
 expect(ml.map(\.text) == ["As long as you pay your rent. L.", "See me ASAP to discuss. L.", "Okay. Thanks.", "Rent. Remember it. Have a nice day. L.", "Yeah I haven't forgotten."], "canlı metinler: \(ml.map(\.text))")
@@ -252,15 +259,15 @@ expect(ml.map(\.fromMe) == [false, false, true, false, true], "canlı taraflar: 
 expect(rl.blocks.first?.speaker == "Linda", "canlı kişi adı: \(String(describing: rl.blocks.first?.speaker))")
 expect(rl.blocks.first?.text == ml.map(\.text).joined(separator: "\n"), "canlı blok metni")
 // --- 1.7.4: balon rengi (mavi = oyuncu). Kare 0238'de son seçenek balonunun merkezi telefon merkezinin SOLUNDA: konum kuralı yanılır.
-let r238c = ScreenText.analyze(f238, bubbleBlue: { $0.minY >= 0.62 })
+let r238c = analyzeNP(f238, bubbleBlue: { $0.minY >= 0.62 })
 let m238c = r238c.blocks.first?.messages ?? []
 expect(m238c.map(\.fromMe) == [false, false, true, true] && m238c.count == 4, "0238 renkli: \(m238c.map { "\($0.fromMe):\($0.text)" })")
 expect(m238c.map(\.text) == ["You got this!", "Hey! Get this, Kat and Mattia are throwing a party on their YACHT!?! Said we could meet up at the Rusty and go from there. That cool?", "Yeah, sure. I wanna see this dinghy.", "You wanna go we can go."], "0238 renkli metinler: \(m238c.map(\.text))")
 expect(r238c.blocks.first?.speaker == "Lucia" && !m238c.contains { $0.text.lowercased().contains("new message") || $0.text == "Lucia" }, "başlık adı ve 'New message' mesaj olmaz")
 // İpucu yok / closure nil döndürür -> eski konum kuralı (üç mesaj, son birleşik balon konumla karşı tarafa düşer)
-let m238n = ScreenText.analyze(f238, bubbleBlue: { _ in nil }).blocks.first?.messages ?? []
+let m238n = analyzeNP(f238, bubbleBlue: { _ in nil }).blocks.first?.messages ?? []
 expect(m238n == m238, "ipucu yoksa eski davranış: \(m238n.map(\.text))")
-expect(ScreenText.analyze(lines(liveRows), bubbleBlue: { _ in nil }).blocks.first?.messages.map(\.fromMe) == [false, false, true, false, true], "ipucu nil: konum kuralı")
+expect(analyzeNP(lines(liveRows), bubbleBlue: { _ in nil }).blocks.first?.messages.map(\.fromMe) == [false, false, true, false, true], "ipucu nil: konum kuralı")
 // ScreenLine.blueBubble alanı varsayılan nil
 expect(ScreenLine(text: "x", rect: .zero).blueBubble == nil, "blueBubble varsayılan nil")
 
@@ -293,18 +300,18 @@ expect(pa3 == [.translate(pb3)], "telefon: çok kısa yeni mesaj da gönderilir 
 expect(trp.feed([], mode: .phone, at: 20) == [] && trp.feed([], mode: .phone, at: 22.5) == [.clear(slot: "phone", kind: .phone)], "telefon: kapanınca temizlenir")
 
 // --- Salt ad/etiket çevrilmez (kare 0092); hedefler geçer
-expect(ScreenText.analyze(lines([psToast, (0.033, 0.183, 0.164, 0.215, 1.0, "Key Lento Coffee Morning")])).blocks.isEmpty, "0092 ad/etiket çevrilmez")
-expect(ScreenText.analyze(lines([(0.400, 0.946, 0.600, 0.977, 1.0, "Get in your car")])).blocks.first?.kind == .objective, "hedef: Get in your car")
-expect(ScreenText.analyze(lines([(0.350, 0.946, 0.650, 0.977, 1.0, "Take Lucia to the community center")])).blocks.first?.kind == .objective, "hedef: Take Lucia ...")
+expect(analyzeNP(lines([psToast, (0.033, 0.183, 0.164, 0.215, 1.0, "Key Lento Coffee Morning")])).blocks.isEmpty, "0092 ad/etiket çevrilmez")
+expect(analyzeNP(lines([(0.400, 0.946, 0.600, 0.977, 1.0, "Get in your car")])).blocks.first?.kind == .objective, "hedef: Get in your car")
+expect(analyzeNP(lines([(0.350, 0.946, 0.650, 0.977, 1.0, "Take Lucia to the community center")])).blocks.first?.kind == .objective, "hedef: Take Lucia ...")
 expect(InfoBox.isNameLabel("Key Lento Coffee Morning") && !InfoBox.isNameLabel("Get in your car") && !InfoBox.isNameLabel("Map updated") && !InfoBox.isNameLabel("Call Joey from your Contacts or check it."), "isNameLabel")
 expect(InfoBox.stripLeadingIcon("$ No goods to sell") == "No goods to sell" && InfoBox.stripLeadingIcon("i Hello there") == "Hello there" && InfoBox.stripLeadingIcon("I think so") == "I think so" && InfoBox.stripLeadingIcon("Hello") == "Hello", "stripLeadingIcon")
 
 // --- Harita açıklaması: simge atılır, başlık ve gövde ayrı parça (kare 0117, 0122)
 let mapPrompts: [Row] = [(0.905, 0.757, 0.961, 0.781, 1.0, "RECENTER"), (0.891, 0.852, 0.961, 0.879, 1.0, "ADD MARKER"), (0.894, 0.951, 0.959, 0.974, 1.0, "CLOSE MENU")]
-let r117 = ScreenText.analyze(lines([psToast, (0.576, 0.341, 0.693, 0.370, 1.0, "DONNIE'S TRAILER"), (0.551, 0.395, 0.676, 0.424, 1.0, "$ No goods to sell"),
+let r117 = analyzeNP(lines([psToast, (0.576, 0.341, 0.693, 0.370, 1.0, "DONNIE'S TRAILER"), (0.551, 0.395, 0.676, 0.424, 1.0, "$ No goods to sell"),
     (0.547, 0.439, 0.762, 0.465, 1.0, "Donnie will pay for any narcotics,"), (0.544, 0.475, 0.792, 0.504, 1.0, "jewelry and marked bills dropped off"), (0.546, 0.511, 0.629, 0.538, 1.0, "at his trailer.")] + mapPrompts))
 expect(r117.blocks.first?.text == "No goods to sell\nDonnie will pay for any narcotics, jewelry and marked bills dropped off at his trailer.", "0117 parçalar: \(r117.blocks.map(\.text))")
-let r122 = ScreenText.analyze(lines([psToast, (0.576, 0.341, 0.718, 0.372, 1.0, "SAVE FOR THE FUTURE"), (0.567, 0.398, 0.769, 0.426, 1.0, "Family Savings will earn interest"),
+let r122 = analyzeNP(lines([psToast, (0.576, 0.341, 0.718, 0.372, 1.0, "SAVE FOR THE FUTURE"), (0.567, 0.398, 0.769, 0.426, 1.0, "Family Savings will earn interest"),
     (0.547, 0.439, 0.770, 0.468, 1.0, "You are Buckin' Broke. Your family"), (0.546, 0.471, 0.766, 0.507, 1.0, "needs savings for a better future."), (0.547, 0.512, 0.767, 0.540, 1.0, "Contribute to your BuckMe Family"),
     (0.546, 0.541, 0.783, 0.578, 1.0, "Savings account and reach the first"), (0.546, 0.581, 0.640, 0.607, 1.0, "milestone.")] + mapPrompts))
 expect(r122.blocks.first?.text.hasPrefix("Family Savings will earn interest\nYou are Buckin' Broke.") == true, "0122 parçalar: \(r122.blocks.map(\.text))")
@@ -367,7 +374,7 @@ let veh1 = lines([psToast,
     (0.770, 0.839, 0.827, 0.863, 1.0, "SELL VALUE"), (0.949, 0.840, 0.975, 0.863, 1.0, "$550"),
     (0.770, 0.886, 0.859, 0.907, 1.0, "COST TO REGISTER"), (0.939, 0.884, 0.975, 0.910, 1.0, "$3,400"),
     (0.930, 0.951, 0.961, 0.974, 1.0, "BACK")])
-let rv1 = ScreenText.analyze(veh1)
+let rv1 = analyzeNP(veh1)
 expect(rv1.mode == .game, "araç 1 mod game: \(rv1.mode)")
 expect(rv1.blocks.count == 1 && rv1.blocks[0].kind == .vehicle && rv1.blocks[0].slot == "vehicle", "araç 1 tek vehicle bloğu: \(rv1.blocks.map { "\($0.kind) \($0.text)" })")
 if let vb = rv1.blocks.first {
@@ -388,7 +395,7 @@ let veh2 = lines([psToast,
     (0.770, 0.824, 0.821, 0.848, 1.0, "STRENGTH"), (0.958, 0.824, 0.975, 0.848, 1.0, "6.2"),
     (0.770, 0.886, 0.807, 0.907, 1.0, "RATING"), (0.897, 0.886, 0.917, 0.907, 1.0, "631"), (0.938, 0.886, 0.958, 0.907, 1.0, "474"),
     (0.930, 0.951, 0.961, 0.974, 1.0, "BACK")])
-let rv2 = ScreenText.analyze(veh2)
+let rv2 = analyzeNP(veh2)
 expect(rv2.mode == .game && rv2.blocks.count == 1 && rv2.blocks[0].kind == .vehicle, "araç 2 tek blok: \(rv2.blocks.map(\.text))")
 if let vb = rv2.blocks.first {
     let cells = vb.rows.flatMap { $0 }
@@ -402,13 +409,13 @@ expect(ScreenText.vehicleTranslation("MONTAGNE XL") == nil && ScreenText.vehicle
 let veh3 = lines([(0.770, 0.700, 0.808, 0.724, 1.0, "ACCESS"), (0.919, 0.700, 0.958, 0.721, 1.0, "SEALED"),
     (0.770, 0.744, 0.818, 0.767, 1.0, "SECURITY"), (0.913, 0.744, 0.958, 0.767, 1.0, "ALARMED"),
     (0.770, 0.788, 0.815, 0.811, 1.0, "TRACKER"), (0.951, 0.788, 0.978, 0.811, 1.0, "NONE"), (0.770, 0.832, 0.827, 0.855, 1.0, "SPEED")])
-let rv3 = ScreenText.analyze(veh3)
+let rv3 = analyzeNP(veh3)
 expect(rv3.blocks.first?.rows.first?.last.map { $0.isValue && $0.translated == nil && $0.source == "SEALED" } == true, "bilinmeyen değer hücresi")
 // Olumsuz: normal bilgi kutusu ve altyazı karesi araç paneli sayılmaz.
-let rn1 = ScreenText.analyze(lines([psToast, (0.025, 0.282, 0.218, 0.308, 1.0, "Call Joey from your Contacts"), (0.048, 0.312, 0.225, 0.339, 1.0, "or check the engine to tow"),
+let rn1 = analyzeNP(lines([psToast, (0.025, 0.282, 0.218, 0.308, 1.0, "Call Joey from your Contacts"), (0.048, 0.312, 0.225, 0.339, 1.0, "or check the engine to tow"),
     (0.025, 0.344, 0.176, 0.370, 1.0, "and repair your vehicle.")]))
 expect(rn1.blocks.count == 1 && rn1.blocks[0].kind == .info, "olumsuz: bilgi kutusu: \(rn1.blocks.map { $0.kind.rawValue })")
-let rn2 = ScreenText.analyze(lines([(0.300, 0.820, 0.700, 0.848, 1.0, "I told you not to come back here"), (0.380, 0.860, 0.620, 0.888, 1.0, "ACCESS"),
+let rn2 = analyzeNP(lines([(0.300, 0.820, 0.700, 0.848, 1.0, "I told you not to come back here"), (0.380, 0.860, 0.620, 0.888, 1.0, "ACCESS"),
     (0.770, 0.708, 0.808, 0.732, 1.0, "SPEED"), (0.770, 0.752, 0.818, 0.775, 1.0, "RATING"), (0.770, 0.800, 0.818, 0.823, 1.0, "TITLE"), (0.770, 0.850, 0.818, 0.873, 1.0, "MENU")]))
 expect(!rn2.blocks.contains { $0.kind == .vehicle }, "olumsuz: sütun yeterli ama değer satırı yok -> araç değil")
 // İzleyici: araç bloğu 2 geçişte gönderilir, değişen içerikte yeniden, kaybolunca temizlenir.
@@ -424,6 +431,59 @@ do {
     f(b, 3); f(b, 4); expect(sends == 2, "araç: içerik değişince yeniden gönderilir: \(sends)")
     f(nil, 5); f(nil, 8); expect(clears == 1, "araç: kaybolunca temizlenir: \(clears)")
 }
+
+// --- Düğme istemleri (.prompt)
+func promptOf(_ r: (mode: ScreenMode, blocks: [ScreenBlock], phone: PhoneInfo?)) -> ScreenBlock? { r.blocks.first { $0.kind == .prompt } }
+func promptSources(_ b: ScreenBlock?) -> [String] { b?.rows.flatMap { $0 }.map(\.source) ?? [] }
+// Harita istemleri (0054): hepsi sözlükte, açıklama bloğu ayrı kalır
+let rp54 = ScreenText.analyze(f54)
+expect(promptSources(promptOf(rp54)) == ["RECENTER", "2D VIEW", "ADD MARKER", "SET DESTINATION", "CLOSE MENU"], "istem 0054: \(promptSources(promptOf(rp54)))")
+expect(promptOf(rp54)?.rows.flatMap { $0 }.map { $0.translated ?? "?" } == ["ORTALA", "2B GÖRÜNÜM", "İŞARET EKLE", "HEDEF BELİRLE", "MENÜYÜ KAPAT"], "istem 0054 çeviri")
+expect(promptOf(rp54)?.slot == "prompt" && rp54.blocks.filter { $0.kind == .description }.count == 1, "istem 0054 slot + açıklama korunur")
+// Açıklama başlığı (y<0.55 ve altında gövde) istem olmaz
+expect(!promptSources(promptOf(rp54)).contains("SET UP BANK ACCOUNT"), "istem: açıklama başlığı istem değil")
+// Simge ayıklama
+expect(ScreenText.stripPromptGlyphs("BACK O") == "BACK" && ScreenText.stripPromptGlyphs("SELECT ®") == "SELECT" && ScreenText.stripPromptGlyphs("RECENTER L3") == "RECENTER"
+       && ScreenText.stripPromptGlyphs("2D VIEW R3") == "2D VIEW" && ScreenText.stripPromptGlyphs("BACK (") == "BACK" && ScreenText.stripPromptGlyphs("EXIT ◯") == "EXIT"
+       && ScreenText.stripPromptGlyphs("BUY ©") == "BUY" && ScreenText.stripPromptGlyphs("TAKE AMMO PACK (0/3)") == "TAKE AMMO PACK (0/3)", "istem simge ayıklama")
+// Oyun modunda simgeli istemler + sayaç + bilinmeyen ad; para/saat atlanır; sol yarı istem değil
+let rpg = ScreenText.analyze(lines([psToast, (0.880, 0.800, 0.960, 0.824, 1.0, "BUY ©"), (0.850, 0.850, 0.960, 0.874, 1.0, "TAKE AMMO PACK (0/3)"),
+    (0.900, 0.900, 0.960, 0.924, 1.0, "ROSCOE"), (0.920, 0.700, 0.960, 0.724, 1.0, "$1,400"), (0.100, 0.800, 0.200, 0.824, 1.0, "BACK"),
+    (0.900, 0.600, 0.960, 0.624, 0.4, "DROP")]))
+expect(rpg.mode == .game && promptSources(promptOf(rpg)) == ["BUY", "TAKE AMMO PACK (0/3)", "ROSCOE"], "istem oyun modu: \(promptSources(promptOf(rpg)))")
+expect(promptOf(rpg)?.rows.flatMap { $0 }.map { $0.translated ?? "nil" } == ["SATIN AL", "nil", "nil"], "istem sözlük/ad: \(promptOf(rpg)?.rows.flatMap { $0 }.map { $0.translated ?? "nil" } ?? [])")
+expect(ScreenText.promptTranslation("TAKE (0/3)") == "AL (0/3)" && ScreenText.splitCounter("TAKE AMMO PACK (0/3)").counter == "(0/3)", "istem sayaç")
+expect(ScreenText.promptTranslation("SET DESTINAUION") == "HEDEF BELİRLE", "istem bulanık eşleşme")
+// Araç paneli etkilenmez (panel hücreleri istem olmaz); BACK ayrı istem bloğu
+let rpv = ScreenText.analyze(veh1)
+expect(rpv.blocks.filter { $0.kind == .vehicle }.count == 1 && promptSources(promptOf(rpv)) == ["BACK"], "istem: araç etkilenmez \(promptSources(promptOf(rpv)))")
+expect(!(rpv.blocks.first { $0.kind == .vehicle }?.rows.flatMap { $0 }.map(\.source).contains("BACK") ?? true), "istem: BACK araç hücresi değil")
+// Telefon modunda da istem (SELECT/BACK O)
+let rpp = ScreenText.analyze(f243)
+expect(rpp.mode == .phone && promptSources(promptOf(rpp)) == ["SELECT", "BACK"], "istem telefon listesi: \(rpp.mode) \(promptSources(promptOf(rpp)))")
+let rpc = ScreenText.analyze(f238)
+expect(rpc.mode == .phone && promptSources(promptOf(rpc)) == ["SCROLL", "SEND", "BACK"] && rpc.blocks.contains { $0.kind == .phone }, "istem telefon konuşması: \(promptSources(promptOf(rpc)))")
+// Menü modu
+let rpm = ScreenText.analyze(menuF)
+expect(rpm.mode == .menu && promptSources(promptOf(rpm)) == ["SELECT", "BACK"], "istem menü: \(promptSources(promptOf(rpm)))")
+// İzleyici: istem yuvası 2 geçişte gönderilir, küme değişince yeniden, kaybolunca ≤2 sn'de temizlenir
+do {
+    var tp = ScreenTracker()
+    let a = promptOf(rp54)!
+    var b = a; b.rows.removeLast()
+    var sends = 0, clears = 0
+    func f(_ x: ScreenBlock?, _ t: Double) { for act in tp.feed(x.map { [$0] } ?? [], mode: .map, at: t) { if case .translate = act { sends += 1 }; if case .clear = act { clears += 1 } } }
+    f(a, 0); expect(sends == 0, "istem izleyici: ilk geçiş çevrilmez")
+    f(a, 1); f(a, 2); expect(sends == 1, "istem izleyici: 2. geçişte bir kez")
+    f(b, 3); f(b, 4); expect(sends == 2, "istem izleyici: küme değişince yeniden: \(sends)")
+    f(nil, 5); f(nil, 7.1); expect(clears == 1, "istem izleyici: kaybolunca ≤2 sn'de temizlenir: \(clears)")
+}
+// Para kesri
+expect(ScreenText.normalizeMoneyFraction("$1,400 1 $5,000") == "$1,400 / $5,000" && ScreenText.normalizeMoneyFraction("$1,400 | $5,000") == "$1,400 / $5,000"
+       && ScreenText.normalizeMoneyFraction("$1,400 / $5,000") == "$1,400 / $5,000" && ScreenText.normalizeMoneyFraction("Pay $20 now") == "Pay $20 now", "para kesri normalleşme: \(ScreenText.normalizeMoneyFraction("$1,400 1 $5,000"))")
+expect(ScreenText.isPassThroughSegment("$1,400 / $5,000") && !ScreenText.isPassThroughSegment("GOAL $1,400"), "harfsiz parça geçer")
+let ga = ScreenText.splitWordsAndAmount("GOAL $1,400 / $5,000")
+expect(ga?.words == "GOAL" && ga?.amount == "$1,400 / $5,000" && ScreenText.splitWordsAndAmount("Meet her at the Fleeca") == nil, "GOAL + tutar ayrımı: \(String(describing: ga))")
 
 print("\(total - failures)/\(total) test geçti")
 exit(failures == 0 ? 0 : 1)

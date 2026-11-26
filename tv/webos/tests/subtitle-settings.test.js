@@ -304,5 +304,23 @@
   eq(S.labelStyle('dark').background, 'rgba(52, 58, 74, 0.97)', 'koyu tema zemini');
   ok(S.labelStyle('light').color !== S.labelStyle('dark').color, 'açık tema ayrı renk');
 
+  // --- ayna: istem + kart ---
+  eq(S.hexColor('#12AbCd', null), '#12AbCd', 'geçerli hex');
+  eq(S.hexColor('red', '#000000'), '#000000', 'geçersiz hex yedeğe düşer');
+  ok(S.isPromptItem({ placement: 'label', style: 'prompt', text: 'X' }) && !S.isPromptItem({ placement: 'label', text: 'X' }), 'istem tanıma');
+  ok(S.isMirrorItem({ placement: 'over', mirror: true, bg: '#303050' }) && !S.isMirrorItem({ placement: 'over', mirror: true }), 'ayna tanıma');
+  var pb = { left: 0.871, top: 0.902, right: 0.959, bottom: 0.925 };
+  var pp = S.promptPlace(pb, 150, 24, W, H, []);
+  eq(pp.placed, 'left', 'istem solda');
+  near(pp.left + 150, 0.871 * W - Math.round(0.006 * W), 'istem sağ kenarı kutunun solunda');
+  var pp2 = S.promptPlace({ left: 0.02, top: 0.5, right: 0.1, bottom: 0.52 }, 150, 24, W, H, []);
+  eq(pp2.placed, 'above', 'yer yoksa üstte');
+  var pp3 = S.promptPlace(pb, 150, 24, W, H, [{ left: pp.left, top: pp.top, width: 150, height: 24 }]);
+  ok(pp3.top + 24 <= pp.top, 'çakışan istem yukarı kayar');
+  var mb = { left: 0.545, top: 0.341, right: 0.783, bottom: 0.7 };
+  eq(S.mirrorPlace(mb, 400, 200, W, H, []).placed, 'above', 'kart önce üste');
+  eq(S.mirrorPlace(mb, 400, 200, W, H, [{ left: 0.5 * W, top: 0.2 * H, width: 600, height: 100 }]).placed, 'below', 'üst doluysa alta');
+  eq(S.mirrorPlace(mb, 400, 900, W, H, []), null, 'sığmazsa null');
+
   print('PASS: ' + count + ' denetim, ' + checked + ' computeRect kombinasyonu (' + overflow + ' taşan içerik)');
 })();

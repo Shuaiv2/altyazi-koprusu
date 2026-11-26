@@ -6,7 +6,7 @@
   'use strict';
 
   // TV uygulamasının sürümü: appinfo.json, tv-tizen/config.xml ve tv-android/app/build.gradle ile aynı tutulur.
-  var APP_VERSION = '1.7.4';
+  var APP_VERSION = '1.7.5';
   var t = window.t;
   var config = window.GAMETRANSLATOR_CONFIG || window.GAMETRANSLATOR_CONFIG || {};
   var platform = window.GAMETRANSLATOR_PLATFORM || window.GAMETRANSLATOR_PLATFORM;
@@ -336,6 +336,14 @@
     var width = window.innerWidth || 1920;
     var height = window.innerHeight || 1080;
     var anyFull = false;
+    // Ayna kartları en sona bırakılır: önce istemler çizilir ki kart onlarla çakışmasın. obstacles = başka öğelerin kutuları (px).
+    var deferred = [];
+    var promptRects = [];
+    var obstacles = [];
+    for (var o = 0; o < (items || []).length; o++) {
+      var ob = validBox(items[o] && items[o].box);
+      if (ob) obstacles.push({ src: items[o], left: ob.left * width, top: ob.top * height, width: (ob.right - ob.left) * width, height: (ob.bottom - ob.top) * height });
+    }
     for (var i = 0; i < (items || []).length; i++) {
       var item = items[i];
       var box = validBox(item && item.box);
@@ -344,8 +352,16 @@
         continue;
       }
       if (!box || !item.text) continue;
+      if (SUB.isPromptItem(item)) {
+        if (regionEnabled(name)) showPromptItem(host, item, box, width, height, promptRects);
+        continue;
+      }
       if (SUB.isLabelItem(item)) {
         if (regionEnabled(name)) showLabelItem(host, item, box, width, height);
+        continue;
+      }
+      if (SUB.isMirrorItem(item)) {
+        if (regionEnabled(name)) deferred.push({ item: item, box: box });
         continue;
       }
       if (SUB.isOverItem(item)) {
@@ -377,6 +393,15 @@
         size -= 2;
         el.style.fontSize = size + 'px';
       }
+    }
+    var mirrorRects = [];
+    for (var d = 0; d < deferred.length; d++) {
+      var others = [];
+      for (var oi = 0; oi < obstacles.length; oi++) if (obstacles[oi].src !== deferred[d].item) others.push(obstacles[oi]);
+      others = others.concat(promptRects, mirrorRects);
+      var placedCard = showMirrorItem(host, deferred[d].item, deferred[d].box, width, height, others);
+      if (placedCard.covered) infoPlaced.push(placedCard);
+      else mirrorRects.push(placedCard.rect);
     }
     // "Ekran çevriliyor…" yazısı tam ekran sonuçlarının üstünde kalmasın; yalnız bilgi kutusu gelirse ana altyazı korunur.
     if (anyFull) hideSubtitle('screen');
@@ -480,6 +505,97 @@
     return { el: el, rect: { left: rect.left, top: rect.top, width: rect.width, height: el.offsetHeight } };
   }
 
+
+  // "label" + style:"prompt": oyunun düğme istemi (ör. "GREET ⓧ") gibi; yalnız Türkçe yazı, zemin yok. Beyaz, kalın, büyük harf,
+  // dar (condensed) yazı tipi, koyu gölgeli (parlak sahnede okunur). Yer: İngilizce istemin solu, olmazsa hemen üstü (SUB.promptPlace).
+  function showPromptItem(host, item, box, width, height, taken) {
+    var line = typeof item.line === 'number' && item.line > 0 ? item.line : (box.bottom - box.top);
+    var el = document.createElement('div');
+    el.className = 'prompt-text';
+    el.textContent = item.text.toLocaleUpperCase ? item.text.toLocaleUpperCase('tr') : item.text.toUpperCase();
+    el.style.fontSize = Math.max(12, Math.round(line * height)) + 'px';
+    el.style.left = '0px';
+    el.style.top = '0px';
+    el.style.opacity = '0';
+    host.appendChild(el);
+    var tw = el.offsetWidth, th = el.offsetHeight;
+    var place = SUB.promptPlace(box, tw, th, width, height, taken);
+    el.style.left = place.left + 'px';
+    el.style.top = place.top + 'px';
+    taken.push({ left: place.left, top: place.top, width: tw, height: th });
+    el.style.webkitTransition = 'opacity 120ms ease-out';
+    el.style.transition = 'opacity 120ms ease-out';
+    setTimeout(function () { el.style.opacity = '1'; }, 16);
+    return el;
+  }
+
+  // Aynalı kart: oyunun kendi kartının kopyası (zemin bg, yazı fg, küçük köşe). Başlık kalın/dar/büyük harf, konuşmacı kalın ad,
+  // gövde normal. Genişlik kaynak kutu kadar (gerekirse 1.25 kata kadar); önce kutunun üstüne, olmazsa altına, o da olmazsa
+  // kutuyu örtecek şekilde (eski "over" davranışı, aynı renklerle) yerleşir. Dönüş {el, rect, covered}.
+  var MIRROR_MIN_FONT = 14;
+
+  function showMirrorItem(host, item, box, width, height, obstacles) {
+    var bg = SUB.hexColor(item.bg, '#1a1a1a');
+    var fg = SUB.hexColor(item.fg, '#ffffff');
+    var line = typeof item.line === 'number' && item.line > 0 ? item.line : 0.03;
+    var parts = SUB.overParts(item);
+    var title = typeof item.title === 'string' ? item.title.replace(/^\s+|\s+$/g, '') : '';
+    var el = document.createElement('div');
+    el.className = 'mirror-card';
+    el.style.background = SUB.rgba(bg, 96);
+    el.style.color = fg;
+    if (title) {
+      var h = document.createElement('div');
+      h.className = 'mirror-title';
+      h.textContent = title;
+      el.appendChild(h);
+    }
+    if (parts.speaker) {
+      var sp = document.createElement('div');
+      sp.className = 'mirror-speaker';
+      sp.textContent = parts.speaker;
+      el.appendChild(sp);
+    }
+    for (var i = 0; i < parts.segments.length; i++) {
+      var seg = document.createElement('div');
+      seg.className = 'mirror-body';
+      seg.textContent = parts.segments[i];
+      el.appendChild(seg);
+    }
+    var baseW = Math.max(120, (box.right - box.left) * width);
+    var base = Math.max(MIRROR_MIN_FONT + 2, Math.round(1.0 * line * height));   // OCR satır kutusu ≈ yazı boyu: oyunla aynı punto
+    el.style.opacity = '0';
+    host.appendChild(el);
+    var found = null;
+    for (var size = base; size >= MIRROR_MIN_FONT && !found; size -= 2) {
+      el.style.fontSize = size + 'px';
+      var wide = baseW + size;   // kaynak kutu yalnız yazıyı sarıyorsa kartın iç boşluğu kadar pay
+      var widths = [wide, Math.min(1.25 * wide, width * 0.9)];
+      for (var wi = 0; wi < widths.length && !found; wi++) {
+        el.style.width = Math.round(widths[wi]) + 'px';
+        var cw = el.offsetWidth, ch = el.offsetHeight;
+        var pl = SUB.mirrorPlace(box, cw, ch, width, height, obstacles);
+        if (pl) found = { left: pl.left, top: pl.top, width: cw, height: ch };
+      }
+    }
+    el.style.webkitTransition = 'opacity 150ms ease-out';
+    el.style.transition = 'opacity 150ms ease-out';
+    setTimeout(function () { el.style.opacity = '1'; }, 16);
+    if (found) {
+      el.style.left = found.left + 'px';
+      el.style.top = found.top + 'px';
+      return { el: el, rect: found, covered: false };
+    }
+    // Yer yok: sade "over" yoluyla kutuyu ört, ama oyunun renkleriyle.
+    host.removeChild(el);
+    var cover = showOverItem(host, item, box, width, height);
+    cover.el.style.background = SUB.rgba(bg, 96);
+    cover.el.style.color = fg;
+    cover.el.style.textShadow = 'none';
+    cover.covered = true;
+    return cover;
+  }
+
   // "label": İngilizce arayüz satırını örten sıkı hücre (araç paneli). Tek satır, koyu arka planda beyaz kalın büyük harf;
   // yazı İngilizce yazının satır yüksekliğinden başlar, hücreye sığana kadar küçülür (hesap SUB.label*'de).
   function showLabelItem(host, item, box, width, height) {
@@ -543,7 +659,15 @@
     for (var i = 0; i < msgs.length; i++) {
       var b = document.createElement('div');
       b.className = 'chat-bubble chat-' + msgs[i].from;
+      var bubbleBg = msgs[i].from === 'me' ? '#D6E4F5' : SUB.hexColor(item.bg, '#EDE8CF');
+      var bubbleFg = msgs[i].from === 'me' ? '#14202e' : SUB.hexColor(item.fg, '#1a1a1a');
+      b.style.background = bubbleBg;
+      b.style.color = bubbleFg;
       b.textContent = msgs[i].text;
+      var tail = document.createElement('span');
+      tail.className = 'chat-tail';
+      tail.style.background = bubbleBg;
+      b.appendChild(tail);
       list.appendChild(b);
       bubbles.push(b);
     }

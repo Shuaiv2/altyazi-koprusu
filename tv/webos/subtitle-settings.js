@@ -315,6 +315,76 @@
     return !!item && typeof item === 'object' && item.placement === 'over';
   }
 
+
+  // --- "Ayna" (oyunun kendi arayüzü gibi) yardımcıları ---
+  // '#rrggbb' dışındaki renkler reddedilir (satır içi stile güvenle yazılır); geçersizse fallback döner.
+  function hexColor(value, fallback) {
+    return typeof value === 'string' && /^#[0-9a-fA-F]{6}$/.test(value) ? value : fallback;
+  }
+
+  // Düğme istemi: tek başına Türkçe yazı (zemin yok), İngilizce istemin SOLUNA konur.
+  function isPromptItem(item) {
+    return isLabelItem(item) && item.style === 'prompt';
+  }
+
+  // Aynalı kart: "over" öğesi mirror:true ve geçerli bg ile gelirse oyun kartının kopyası çizilir.
+  function isMirrorItem(item) {
+    return isOverItem(item) && item.mirror === true && hexColor(item.bg, null) !== null;
+  }
+
+  function rectsOverlap(a, b, pad) {
+    var p = num(pad, 0);
+    return a.left < b.left + b.width + p && b.left < a.left + a.width + p && a.top < b.top + b.height + p && b.top < a.top + a.height + p;
+  }
+
+  // Düğme isteminin yeri (px): önce kutunun soluna (sağ kenar = box.left - %0.6 genişlik, dikeyde ortalı); yer yoksa kutunun
+  // hemen üstüne, sağ kenar box.right'a hizalı. Önceki istemlerle (taken) çakışırsa yukarı kaydırılır. Dönüş {left, top, placed}.
+  function promptPlace(box, tw, th, vw, vh, taken) {
+    var gap = Math.round(0.006 * vw);
+    var cy = (num(box.top, 0) + num(box.bottom, 0)) / 2 * vh;
+    var left = num(box.left, 0) * vw - gap - tw;
+    var top = cy - th / 2;
+    var placed = 'left';
+    if (left < 0.01 * vw) {
+      placed = 'above';
+      left = num(box.right, 0) * vw - tw;
+      top = num(box.top, 0) * vh - th - 2;
+    }
+    left = clamp(left, 0, Math.max(0, vw - tw));
+    top = clamp(top, 0, Math.max(0, vh - th));
+    var list = taken || [];
+    for (var guard = 0; guard < 20; guard++) {
+      var hit = null;
+      for (var i = 0; i < list.length; i++) {
+        if (rectsOverlap({ left: left, top: top, width: tw, height: th }, list[i], 0)) { hit = list[i]; break; }
+      }
+      if (!hit) break;
+      top = Math.max(0, hit.top - th - 1);
+    }
+    return { left: Math.round(left), top: Math.round(top), placed: placed };
+  }
+
+  // Aynalı kartın yeri: kutunun üstü (alt kenar = box.top - gap, üst kenar >= %3), olmazsa altı (alt kenar <= ekranın %98'i);
+  // iki durumda da başka kutularla (obstacles: [{left, top, width, height}]) çakışmamalı. Sığmazsa null (kutuyu örtme).
+  function mirrorPlace(box, cw, ch, vw, vh, obstacles) {
+    var gap = Math.round(0.008 * vh);
+    var left = clamp(num(box.left, 0) * vw, 0.01 * vw, Math.max(0.01 * vw, vw - 0.01 * vw - cw));
+    var obs = obstacles || [];
+    var tries = [
+      { placed: 'above', top: num(box.top, 0) * vh - gap - ch },
+      { placed: 'below', top: num(box.bottom, 0) * vh + gap }
+    ];
+    for (var t = 0; t < tries.length; t++) {
+      var top = tries[t].top;
+      if (top < 0.03 * vh || top + ch > 0.98 * vh) continue;
+      var r = { left: left, top: top, width: cw, height: ch };
+      var clash = false;
+      for (var i = 0; i < obs.length; i++) if (rectsOverlap(r, obs[i], 0)) { clash = true; break; }
+      if (!clash) return { left: Math.round(left), top: Math.round(top), placed: tries[t].placed };
+    }
+    return null;
+  }
+
   // "beside": telefon sohbet paneli. Telefon kutusunun SOLUNA (sağ kenar = box.left*w - 24), yer yoksa SAĞINA konur;
   // ikisine de sığmazsa daha geniş olan yan seçilir ve ekran kenar boşluğuna sıkıştırılır. Genişlik min(0.24*w, 460),
   // üst kenar = box.top, en çok yükseklik = kutu yüksekliği (ekrana sıkıştırılır). placed: 'left' | 'right'.
@@ -501,6 +571,12 @@
     besideMessages: besideMessages,
     isBesideItem: isBesideItem,
     isLabelItem: isLabelItem,
+    isPromptItem: isPromptItem,
+    isMirrorItem: isMirrorItem,
+    hexColor: hexColor,
+    rectsOverlap: rectsOverlap,
+    promptPlace: promptPlace,
+    mirrorPlace: mirrorPlace,
     labelFontSize: labelFontSize,
     labelGeometry: labelGeometry,
     labelPlace: labelPlace,
