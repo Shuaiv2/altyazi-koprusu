@@ -161,7 +161,8 @@ html, body {
   letter-spacing: 0.02em;
   line-height: 1.15;
   text-transform: uppercase;
-  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9), 0 2px 3px rgba(0, 0, 0, 0.8);
+  /* Oyunun istem yazısı gibi: hafif gölge, göz almasın. */
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55), 0 0 1px rgba(0, 0, 0, 0.4);
 }
 /* Aynalı kart: oyun kartının kopyası; renkler satır içi */
 #screen .mirror-card {
@@ -180,6 +181,7 @@ html, body {
 #screen .mirror-title { font-family: 'sans-serif-condensed', 'Roboto Condensed', 'Arial Narrow', sans-serif; font-weight: 700; font-size: 1.3em; text-transform: uppercase; letter-spacing: 0.02em; line-height: 1.15; margin-bottom: 0.35em; }
 #screen .mirror-speaker { font-weight: 700; margin-bottom: 0.15em; }
 #screen .mirror-body { font-weight: 400; }
+#screen .mirror-plain { background: transparent; color: #ffffff; box-shadow: none; padding: 0.15em 0.1em; text-shadow: 0 0 4px rgba(0, 0, 0, 0.95), 0 2px 3px rgba(0, 0, 0, 0.85); }
 #screen .item.paragraphs { text-align: left; white-space: pre-line; }
 
 /* Hızlı konuşmada önceki satır kısa süre yeni satırın üstünde, daha soluk durur. */

@@ -64,6 +64,32 @@ public enum BubbleColor {
         return mirrorColors(rgba: buf, pixels: cw * ch)
     }
 
+    /// Bölge düz renkli bir kart mı? Piksellerin en az yarısı baskın renge yakınsa (RGB uzaklığı ≤ 48) kart; değilse
+    /// oyun yazıyı doğrudan sahnenin üstüne yazmıştır (kutusuz yazı).
+    public static func isSolidCard(in frame: CGImage, box: CGRect) -> Bool {
+        let w = Double(frame.width), h = Double(frame.height)
+        let px = CGRect(x: box.minX * w, y: box.minY * h, width: box.width * w, height: box.height * h).integral
+            .intersection(CGRect(x: 0, y: 0, width: w, height: h))
+        guard !px.isNull, px.width >= 2, px.height >= 2, let crop = frame.cropping(to: px) else { return true }
+        let cw = min(Int(px.width), 96), ch = min(Int(px.height), 48)
+        var buf = [UInt8](repeating: 0, count: cw * ch * 4)
+        guard let ctx = CGContext(data: &buf, width: cw, height: ch, bitsPerComponent: 8, bytesPerRow: cw * 4,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return true }
+        ctx.interpolationQuality = .low
+        ctx.draw(crop, in: CGRect(x: 0, y: 0, width: cw, height: ch))
+        let n = cw * ch
+        var count = [Int](repeating: 0, count: 512)
+        for i in 0..<n { count[(Int(buf[i * 4]) >> 5) << 6 | (Int(buf[i * 4 + 1]) >> 5) << 3 | (Int(buf[i * 4 + 2]) >> 5)] += 1 }
+        guard let kb = count.indices.max(by: { count[$0] < count[$1] }) else { return true }
+        let (br, bgc, bb) = (((kb >> 6) & 7) * 32 + 16, ((kb >> 3) & 7) * 32 + 16, (kb & 7) * 32 + 16)
+        var near = 0
+        for i in 0..<n {
+            let dr = Int(buf[i * 4]) - br, dg = Int(buf[i * 4 + 1]) - bgc, db = Int(buf[i * 4 + 2]) - bb
+            if dr * dr + dg * dg + db * db <= 48 * 48 { near += 1 }
+        }
+        return Double(near) >= 0.5 * Double(n)
+    }
+
     /// Saf mantık: RGBA tampon (premultipliedLast) üzerinden zemin ve yazı rengi.
     static func mirrorColors(rgba buf: [UInt8], pixels n: Int) -> (bg: String, fg: String)? {
         guard n > 0, buf.count >= n * 4 else { return nil }

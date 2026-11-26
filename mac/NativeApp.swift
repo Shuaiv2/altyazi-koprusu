@@ -2964,6 +2964,8 @@ final class AppState {
             var mirrors: [String: (bg: String, fg: String)] = [:]
             for b in result.blocks where b.kind == .notify || b.kind == .description || b.kind == .info || b.kind == .phone {
                 let area = b.kind == .phone ? (result.phone?.box ?? b.box) : b.box
+                // Düz renkli kart yoksa (yazı sahnenin üstünde) Türkçe de kutusuz yazılır.
+                if b.kind != .phone, !BubbleColor.isSolidCard(in: frame, box: b.box.insetBy(dx: -0.006, dy: -0.006)) { mirrors[b.slot] = (Self.plainMirror, "#ffffff"); continue }
                 if let c = BubbleColor.mirrorColors(in: frame, box: area) { mirrors[b.slot] = c }
             }
             DispatchQueue.main.async {
@@ -3018,6 +3020,9 @@ final class AppState {
         }
     }
 
+    /// Ayna rengi yerine "kutusuz yazı" işareti (oyun yazıyı kartsız, sahnenin üstüne yazmış).
+    nonisolated static let plainMirror = "plain"
+
     /// Kutu bölgesinin ortalama parlaklığı > 0.55 ise "light", değilse "dark".
     nonisolated static func theme(of frame: CGImage, box: CGRect) -> String {
         let w = Double(frame.width), h = Double(frame.height)
@@ -3042,7 +3047,8 @@ final class AppState {
         // Harfsiz parça (para/sayı/kesir) çevirmene gitmez; "GOAL $1,400 / $5,000" için yalnızca sözcük kısmı çevrilir.
         var parts: [String] = []
         for rawSeg in b.text.components(separatedBy: "\n") where !rawSeg.isEmpty {
-            let seg = ScreenText.normalizeMoneyFraction(rawSeg)
+            // Satır başındaki tek harfli simge kalıntısı ("L Lucia only"): A/I dışı tek büyük harf + büyük harfle başlayan sözcük.
+            let seg = ScreenText.normalizeMoneyFraction(rawSeg.replacingOccurrences(of: "^[B-HJ-Z]\\s+(?=\\p{Lu})", with: "", options: .regularExpression))
             if ScreenText.isPassThroughSegment(seg) { parts.append(seg); continue }
             if let (words, amount) = ScreenText.splitWordsAndAmount(seg) {
                 let tr: String
@@ -3078,7 +3084,10 @@ final class AppState {
             var item: [String: Any] = ["text": finalTurkish, "source": finalSource, "box": box, "line": b.lineHeight, "placement": Self.screenPlacement(b.kind), "theme": theme]
             if let sp = b.speaker { item["speaker"] = sp }
             if let tt = finalTitle, let src = b.title { item["title"] = tt; item["titleSource"] = src }
-            if let c = colors, b.kind == .notify || b.kind == .description || b.kind == .info { item["mirror"] = true; item["bg"] = c.bg; item["fg"] = c.fg }
+            if let c = colors, b.kind == .notify || b.kind == .description || b.kind == .info {
+                item["mirror"] = true
+                if c.bg == Self.plainMirror { item["plain"] = true } else { item["bg"] = c.bg; item["fg"] = c.fg }
+            }
             self.screenItems[b.slot] = item
             self.screenKinds[b.slot] = b.kind
             self.liveInfo = finalTurkish
@@ -3134,7 +3143,11 @@ final class AppState {
                     if mt == nil {
                         let r = await translateText(GameEnglish.plain(base.capitalized))
                         guard let t = r.text, !t.isEmpty else { await MainActor.run { self.screenTracker.forgetShown(slot: b.slot) }; return }
-                        let up = t.uppercased(with: tr)
+                        // Çevirmen istemi mastar verir ("Çevirmek", "Geri almak"): oyun istemi gibi emir kipine çevir.
+                        // Önce İngilizce küçük harf: çevirmenin ASCII "I" ile başlattığı sözcük "İ" olsun ("Incelemek" -> "İNCELE").
+                        var low = t.lowercased(with: Locale(identifier: "en_US_POSIX")).trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+                        if let last = low.split(separator: " ").last, last.count >= 6, last.hasSuffix("mek") || last.hasSuffix("mak") { low.removeLast(3) }
+                        let up = low.uppercased(with: tr)
                         mt = fold(up) == fold(base) ? "" : up
                         let store = mt!
                         await MainActor.run { self.promptMTCache[base] = store }

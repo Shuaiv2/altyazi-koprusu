@@ -329,7 +329,7 @@
 
   // Aynalı kart: "over" öğesi mirror:true ve geçerli bg ile gelirse oyun kartının kopyası çizilir.
   function isMirrorItem(item) {
-    return isOverItem(item) && item.mirror === true && hexColor(item.bg, null) !== null;
+    return isOverItem(item) && item.mirror === true && (item.plain === true || hexColor(item.bg, null) !== null);
   }
 
   function rectsOverlap(a, b, pad) {
@@ -525,7 +525,9 @@
     var top = Math.max(0, (box.top - CELL_PAD_Y) * vh);
     var bottom = Math.min(vh, (box.bottom + CELL_PAD_Y) * vh);
     var line = item && typeof item.line === 'number' && item.line > 0 ? item.line : (box.bottom - box.top);
-    var fontSize = Math.max(LABEL_MIN_FONT, Math.round(CELL_FONT_FACTOR * line * vh));
+    // BÜYÜK HARF başlıkta OCR kutusu büyük harf yüksekliğinden ~%40 uzundur (inen harf yok): oyunla aynı punto için küçült.
+    var caps = !!(item && item.caps === true);
+    var fontSize = Math.max(LABEL_MIN_FONT, Math.round((caps ? 0.75 : CELL_FONT_FACTOR) * line * vh));
     var maxRight = item && typeof item.maxRight === 'number' && !isNaN(item.maxRight) ? item.maxRight * vw : right;
     return {
       left: Math.round(left), top: Math.round(top), width: Math.round(right - left), height: Math.round(bottom - top),

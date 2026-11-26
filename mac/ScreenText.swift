@@ -61,7 +61,15 @@ public struct ScreenBlock: Equatable {
     var vehicleSignature: String {
         let base = rows.flatMap { $0 }.map { $0.translated ?? TextMatch.normalize($0.source) }.joined(separator: "|")
         // Liste kayınca aynı satırlar başka yere gelir: ilk satırın yaklaşık yeri imzaya girer (kaba kutu, titreme tetiklemesin).
-        if kind == .menu, let y = rows.first?.first?.box.minY { return base + "@" + String(Int((Double(y) / 0.03).rounded())) }
+        if kind == .menu, let y = rows.first?.first?.box.minY {
+            // Seçili satır (açık zeminli hücre) değişince de yeniden gönderilmeli; yoksa beyaz vurgu eski satırda kalır.
+            let cells = rows.flatMap { $0 }
+            let sel = cells.indices.filter { i in
+                guard let h = cells[i].bg, h.count == 7, let v = Int(h.dropFirst(), radix: 16) else { return false }
+                return Double((v >> 16) & 255) * 0.2126 + Double((v >> 8) & 255) * 0.7152 + Double(v & 255) * 0.0722 > 140
+            }.map(String.init).joined(separator: ",")
+            return base + "@" + String(Int((Double(y) / 0.03).rounded())) + "#" + sel
+        }
         return base
     }
 }
@@ -240,7 +248,7 @@ public enum ScreenText {
         "phone": "TELEFON", "reminders": "HATIRLATICILAR", "photo studio": "FOTOĞRAF STÜDYOSU", "marked bills": "İŞARETLİ PARA",
         "jewelry": "MÜCEVHER", "narcotics": "UYUŞTURUCU", "stash": "ZULA", "stash bag": "ZULA ÇANTASI", "teller": "VEZNEDAR",
         "local": "YEREL", "vehicle": "ARAÇ", "mods": "MODİFİYE", "you okay": "İYİ MİSİN?", "deadlifts": "DEADLIFT",
-        "tactical rifle": "TAKTİK TÜFEK", "pilot": "PİLOT", "alarm": "ALARM", "tab": "SEKME",
+        "tactical rifle": "TAKTİK TÜFEK", "wear": "GİY", "look": "BAK", "travel": "YOLCULUK YAP", "take photo": "FOTOĞRAF ÇEK", "examine": "İNCELE", "flip": "ÇEVİR", "undo": "GERİ AL", "show text": "METNİ GÖSTER", "previous tab": "ÖNCEKİ SEKME", "next tab": "SONRAKİ SEKME", "pilot": "PİLOT", "alarm": "ALARM", "tab": "SEKME",
     ]
 
     /// Marka/karakter adları ve tabela parçaları: istem değildir, çevrilmez.
@@ -248,7 +256,7 @@ public enum ScreenText {
                                           "b a n k", "glory", "kingfishers", "hawk little mediator", "willard", "buckme"]
 
     private static let counterRx = rx("\\s*(\\(\\s*\\d+\\s*/\\s*\\d+\\s*\\))\\s*$")
-    private static let glyphTokenRx = rx("^(?:[OXx0QD©®◯○●×✕△□▽⊗⊙]|\\(|\\)|\\(\\w{1,2}\\)?|\\w\\)|[LR][123]|[^\\p{L}\\p{N}]+)$")
+    private static let glyphTokenRx = rx("^(?:[OXx0QDAΔ©®◯○●×✕△□▽⊗⊙]|\\(|\\)|\\(\\w{1,2}\\)?|\\w\\)|[LR][123]|[^\\p{L}\\p{N}]+)$")
 
     /// "TAKE AMMO PACK (0/3)" -> ("TAKE AMMO PACK", "(0/3)"); sayaç yoksa ikinci değer nil.
     public static func splitCounter(_ text: String) -> (base: String, counter: String?) {
@@ -570,6 +578,8 @@ public enum ScreenText {
                 out.append(ScreenBlock(kind: .objective, text: c.text, title: nil, speaker: nil, box: c.rect, lineHeight: c.lh, slot: "objective"))
             } else if c.x0 < 0.08, c.y0 >= 0.18, c.y0 <= 0.55, words >= 3, InfoBox.isSentenceLike(c.text) {
                 if nameLike { continue }
+                // Tüm sözcükleri büyük harfle başlayan satır cümle değil, ad/ürün adıdır ("Bandeau, Shrug & Cargos").
+                if !c.text.split(whereSeparator: { $0.isWhitespace }).contains(where: { $0.first?.isLowercase == true }) { continue }
                 out.append(ScreenBlock(kind: .info, text: c.text, title: nil, speaker: nil, box: c.rect, lineHeight: c.lh, slot: "info"))
             } else if c.x0 > 0.74 {
                 if c.y0 >= 0.75, c.y0 <= 0.97, c.x1 >= 0.9, words >= 2 {
@@ -775,9 +785,17 @@ public struct ScreenTracker {
             if b.kind == .vehicle || b.kind == .prompt || b.kind == .menu {
                 // Araç paneli / istemler / liste: kanonik hücre metni birebir aynı 2 ardışık geçişte kararlı; sayfa/içerik değişince yeniden gönder.
                 let sig = b.vehicleSignature
-                if sig == t.candidate { t.stable += 1 } else { t.stable = 1 }
+                // Liste: seçili (beyaz zeminli) satırın OCR'ı geçişten geçişe titrer ("Stanier"/"Staniel"); birebir eşitlik
+                // hiç kararlı olmaz ve satır hiç gönderilmez. Liste için satır sayısı aynı + ≥0.9 benzerlik yeterlidir.
+                func same(_ a: String, _ c: String) -> Bool {
+                    if a == c { return true }
+                    guard b.kind == .menu, !a.isEmpty, !c.isEmpty, a.components(separatedBy: "#").last == c.components(separatedBy: "#").last,
+                          a.components(separatedBy: "|").count == c.components(separatedBy: "|").count else { return false }
+                    return TextMatch.isSimilar(a, c, threshold: 0.9)
+                }
+                if same(sig, t.candidate) { t.stable += 1 } else { t.stable = 1 }
                 t.candidate = sig
-                if t.stable >= 2, !(t.visible && t.shown == sig) {
+                if t.stable >= 2, !(t.visible && t.shown.map { same(sig, $0) } == true) {
                     t.shown = sig; t.visible = true
                     actions.append(.translate(b))
                 }

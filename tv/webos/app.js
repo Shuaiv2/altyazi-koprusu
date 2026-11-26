@@ -6,7 +6,7 @@
   'use strict';
 
   // TV uygulamasının sürümü: appinfo.json, tv-tizen/config.xml ve tv-android/app/build.gradle ile aynı tutulur.
-  var APP_VERSION = '1.7.6';
+  var APP_VERSION = '1.7.8';
   var t = window.t;
   var config = window.GAMETRANSLATOR_CONFIG || window.GAMETRANSLATOR_CONFIG || {};
   var platform = window.GAMETRANSLATOR_PLATFORM || window.GAMETRANSLATOR_PLATFORM;
@@ -525,7 +525,8 @@
     var el = document.createElement('div');
     el.className = 'prompt-text';
     el.textContent = item.text.toLocaleUpperCase ? item.text.toLocaleUpperCase('tr') : item.text.toUpperCase();
-    el.style.fontSize = Math.max(12, Math.round(line * height)) + 'px';
+    // OCR kutusu BÜYÜK HARF yazının büyük harf yüksekliğinden ~%40 uzundur: oyunla aynı punto için 0.72 kat.
+    el.style.fontSize = Math.max(12, Math.round(0.72 * line * height)) + 'px';
     el.style.left = '0px';
     el.style.top = '0px';
     el.style.opacity = '0';
@@ -553,9 +554,12 @@
     var parts = SUB.overParts(item);
     var title = typeof item.title === 'string' ? item.title.replace(/^\s+|\s+$/g, '') : '';
     var el = document.createElement('div');
-    el.className = 'mirror-card';
-    el.style.background = SUB.rgba(bg, 96);
-    el.style.color = fg;
+    // plain: oyun yazıyı kartsız, sahnenin üstüne yazmış; Türkçe de kutusuz, gölgeli beyaz yazı olur.
+    el.className = item.plain ? 'mirror-card mirror-plain' : 'mirror-card';
+    if (!item.plain) {
+      el.style.background = SUB.rgba(bg, 96);
+      el.style.color = fg;
+    }
     if (title) {
       var h = document.createElement('div');
       h.className = 'mirror-title';
@@ -582,7 +586,11 @@
     for (var size = base; size >= MIRROR_MIN_FONT && !found; size -= 2) {
       el.style.fontSize = size + 'px';
       var wide = baseW + size;   // kaynak kutu yalnız yazıyı sarıyorsa kartın iç boşluğu kadar pay
-      var widths = [wide, Math.min(1.25 * wide, width * 0.9)];
+      // Kısa metin tek satıra sığsın diye önce doğal (sarmasız) genişlik denenir; kart kaynaktan en çok 1.6 kat geniş olur.
+      el.style.width = 'auto'; el.style.whiteSpace = 'nowrap';
+      var natural = el.offsetWidth;
+      el.style.whiteSpace = '';
+      var widths = natural <= Math.min(1.6 * wide, width * 0.45) ? [Math.max(wide, natural), wide, Math.min(1.25 * wide, width * 0.9)] : [wide, Math.min(1.25 * wide, width * 0.9)];
       for (var wi = 0; wi < widths.length && !found; wi++) {
         el.style.width = Math.round(widths[wi]) + 'px';
         var cw = el.offsetWidth, ch = el.offsetHeight;
