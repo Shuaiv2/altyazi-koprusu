@@ -506,6 +506,77 @@
     return { background: 'rgba(52, 58, 74, 0.97)', color: '#ffffff' };
   }
 
+  // "label" + style:"cell": harita/menü listesi satırı. Türkçe, İngilizce satırın TAM üstüne oyunun kendi renkleriyle çizilir
+  // (zemin bg opak, yazı fg). Kutu her yandan ~%0.25 genişler; Türkçe uzunsa sağa maxRight'a kadar uzar, sonra yazı başlangıç
+  // boyunun %75'ine kadar küçülür, son çare "…".
+  var CELL_PAD_X = 0.0025;
+  var CELL_PAD_Y = 0.0025;
+  var CELL_MIN_SCALE = 0.75;
+  var CELL_FONT_FACTOR = 1.0;
+
+  function isCellItem(item) {
+    return isLabelItem(item) && item.style === 'cell';
+  }
+
+  // {left, top, width, height (px; kaynak kutu + pay), maxWidth (sağa uzama sınırı), fontSize, minFont, caps}
+  function cellGeometry(item, box, vw, vh) {
+    var left = Math.max(0, (box.left - CELL_PAD_X) * vw);
+    var right = Math.min(vw, (box.right + CELL_PAD_X) * vw);
+    var top = Math.max(0, (box.top - CELL_PAD_Y) * vh);
+    var bottom = Math.min(vh, (box.bottom + CELL_PAD_Y) * vh);
+    var line = item && typeof item.line === 'number' && item.line > 0 ? item.line : (box.bottom - box.top);
+    var fontSize = Math.max(LABEL_MIN_FONT, Math.round(CELL_FONT_FACTOR * line * vh));
+    var maxRight = item && typeof item.maxRight === 'number' && !isNaN(item.maxRight) ? item.maxRight * vw : right;
+    return {
+      left: Math.round(left), top: Math.round(top), width: Math.round(right - left), height: Math.round(bottom - top),
+      maxWidth: Math.round(Math.max(right, Math.min(maxRight, vw)) - left), fontSize: fontSize,
+      minFont: Math.max(LABEL_MIN_FONT, Math.round(fontSize * CELL_MIN_SCALE)), caps: !!(item && item.caps === true)
+    };
+  }
+
+  // measure(size) = yazının o punto ile iç boşluksuz genişliği (px). Dönüş: {width, fontSize, ellipsis}.
+  // Sığıyorsa kaynak genişliği korunur; değilse sağa uzar; o da yetmezse küçülür; son çare üç nokta.
+  function cellFit(g, measure, padX) {
+    var px = num(padX, 0);
+    var size = g.fontSize;
+    var w = measure(size) + 2 * px;
+    if (w <= g.width) return { width: g.width, fontSize: size, ellipsis: false };
+    if (w <= g.maxWidth) return { width: Math.ceil(w), fontSize: size, ellipsis: false };
+    while (size > g.minFont) {
+      size -= 1;
+      w = measure(size) + 2 * px;
+      if (w <= g.maxWidth) return { width: Math.ceil(w), fontSize: size, ellipsis: false };
+    }
+    return { width: g.maxWidth, fontSize: g.minFont, ellipsis: true };
+  }
+
+  // Hücreler (px: {left, top, width, height}) birbirinin üstüne binmesin: dikey çakışan ve yatay örtüşen komşu çiftlerde
+  // sınır iki hücrenin ortasına çekilir (üstteki kısalır, alttaki iner). Yeni dizi döner, sırası girdiyle aynıdır.
+  function cellResolve(rects) {
+    var out = [];
+    var order = [];
+    for (var i = 0; i < (rects || []).length; i++) {
+      out.push({ left: rects[i].left, top: rects[i].top, width: rects[i].width, height: rects[i].height });
+      order.push(i);
+    }
+    order.sort(function (a, b) { return out[a].top - out[b].top; });
+    for (var k = 1; k < order.length; k++) {
+      var cur = out[order[k]];
+      for (var j = k - 1; j >= 0; j--) {
+        var prev = out[order[j]];
+        var overlapX = cur.left < prev.left + prev.width && prev.left < cur.left + cur.width;
+        var prevBottom = prev.top + prev.height;
+        if (!overlapX || prevBottom <= cur.top) continue;
+        var cut = Math.round((cur.top + prevBottom) / 2);
+        cut = Math.max(prev.top + 1, Math.min(cut, cur.top + cur.height - 1));
+        prev.height = cut - prev.top;
+        cur.height = cur.top + cur.height - cut;
+        cur.top = cut;
+      }
+    }
+    return out;
+  }
+
   // Bölge -> menü anahtarı: 'phone' ve 'notify' telefonMesajları, geri kalan bölgeler bilgi kutuları anahtarına bağlı.
   // 'vehicle' (araç paneli) bilgi kutuları anahtarına bağlıdır.
   function toggleKeyForRegion(region) {
@@ -582,6 +653,11 @@
     labelPlace: labelPlace,
     labelFits: labelFits,
     labelStyle: labelStyle,
+    isCellItem: isCellItem,
+    cellGeometry: cellGeometry,
+    cellFit: cellFit,
+    cellResolve: cellResolve,
+    CELL_PAD_X: CELL_PAD_X,
     LABEL_PAD_X: LABEL_PAD_X,
     LABEL_PAD_Y: LABEL_PAD_Y,
     overFontSize: overFontSize,

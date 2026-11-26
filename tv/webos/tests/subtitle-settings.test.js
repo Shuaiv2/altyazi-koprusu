@@ -322,5 +322,38 @@
   eq(S.mirrorPlace(mb, 400, 200, W, H, [{ left: 0.5 * W, top: 0.2 * H, width: 600, height: 100 }]).placed, 'below', 'üst doluysa alta');
   eq(S.mirrorPlace(mb, 400, 900, W, H, []), null, 'sığmazsa null');
 
+  // --- liste hücresi (style:"cell") ---
+  var citem = { placement: 'label', style: 'cell', text: 'Gelecek için Biriktir', line: 0.022, caps: false, maxRight: 0.30, bg: '#f0f0f0', fg: '#2a2550' };
+  var cbox = { left: 0.081, top: 0.121, right: 0.206, bottom: 0.142 };
+  ok(S.isCellItem(citem) && !S.isCellItem({ placement: 'label', text: 'X' }) && !S.isCellItem({ placement: 'label', style: 'prompt', text: 'X' }), 'hücre tanıma');
+  var cg = S.cellGeometry(citem, cbox, W, H);
+  ok(cg.left < 0.081 * W && cg.left + cg.width > 0.206 * W, 'hücre kaynak kutuyu her yandan örter');
+  near(cg.left, 0.081 * W - 0.0025 * W, 'hücre sol payı');
+  near(cg.top, 0.121 * H - 0.0025 * H, 'hücre üst payı');
+  near(cg.height, (0.142 - 0.121 + 0.005) * H, 'hücre yüksekliği kutu + pay');
+  eq(cg.fontSize, Math.round(0.022 * H), 'yazı boyu = satır x ekran yüksekliği');
+  eq(cg.minFont, Math.round(cg.fontSize * 0.75), 'en küçük yazı %75');
+  near(cg.left + cg.maxWidth, 0.30 * W, 'sağa uzama maxRight kadar');
+  eq(cg.caps, false, 'caps bayrağı');
+  eq(S.cellGeometry({ placement: 'label', style: 'cell', text: 'X', caps: true }, cbox, W, H).caps, true, 'caps true');
+  var noMax = S.cellGeometry({ placement: 'label', style: 'cell', text: 'X' }, cbox, W, H);
+  eq(noMax.maxWidth, noMax.width, 'maxRight yoksa uzama yok');
+  var shortMax = S.cellGeometry({ placement: 'label', style: 'cell', text: 'X', maxRight: 0.05 }, cbox, W, H);
+  ok(shortMax.maxWidth >= shortMax.width, 'maxRight kutudan küçükse kutu kadar');
+  var f1 = S.cellFit({ width: 300, maxWidth: 400, fontSize: 30, minFont: 22 }, function (sz) { return 100 * sz / 30; }, 4);
+  eq(f1.width, 300, 'sığan Türkçe kaynak genişliğinde kalır'); eq(f1.fontSize, 30, 'sığınca küçülmez'); eq(f1.ellipsis, false, 'sığınca üç nokta yok');
+  var f2 = S.cellFit({ width: 300, maxWidth: 400, fontSize: 30, minFont: 22 }, function (sz) { return 340 * sz / 30; }, 4);
+  eq(f2.fontSize, 30, 'sağa uzayınca yazı küçülmez'); ok(f2.width > 300 && f2.width <= 400, 'sağa uzar: ' + f2.width);
+  var f3 = S.cellFit({ width: 300, maxWidth: 400, fontSize: 30, minFont: 22 }, function (sz) { return 450 * sz / 30; }, 4);
+  ok(f3.fontSize < 30 && f3.fontSize >= 22 && f3.width <= 400 && !f3.ellipsis, 'uzama yetmezse küçülür: ' + f3.fontSize + ' ' + f3.width);
+  var f4 = S.cellFit({ width: 300, maxWidth: 400, fontSize: 30, minFont: 22 }, function (sz) { return 900 * sz / 30; }, 4);
+  ok(f4.ellipsis && f4.fontSize === 22 && f4.width === 400, 'son çare üç nokta');
+  var rs = S.cellResolve([{ left: 10, top: 100, width: 200, height: 40 }, { left: 10, top: 130, width: 300, height: 40 }, { left: 500, top: 120, width: 50, height: 40 }, { left: 10, top: 200, width: 100, height: 30 }]);
+  ok(rs[0].top + rs[0].height <= rs[1].top, 'çakışan hücreler ayrılır: ' + JSON.stringify(rs));
+  eq(rs[0].top, 100, 'üstteki hücre yerinde'); eq(rs[1].top + rs[1].height, 170, 'alttaki hücrenin alt kenarı korunur');
+  eq(rs[2].top, 120, 'yatay örtüşmeyen dokunulmaz'); eq(rs[3].top, 200, 'çakışmayan dokunulmaz');
+  var inRects = [{ left: 0, top: 0, width: 10, height: 10 }, { left: 0, top: 5, width: 10, height: 10 }];
+  S.cellResolve(inRects); eq(inRects[0].height, 10, 'cellResolve girdiyi değiştirmez');
+
   print('PASS: ' + count + ' denetim, ' + checked + ' computeRect kombinasyonu (' + overflow + ' taşan içerik)');
 })();

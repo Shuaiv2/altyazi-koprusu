@@ -17,7 +17,7 @@ public struct ScreenLine: Equatable {
 
 public enum ScreenMode: String, Equatable { case game, map, menu, phone }
 
-public enum ScreenKind: String, Equatable { case objective, info, notify, description, phone, vehicle, prompt }
+public enum ScreenKind: String, Equatable { case objective, info, notify, description, phone, vehicle, prompt, menu }
 
 /// Araç bilgi panelindeki tek hücre (etiket ya da sözcük değer). Sayı/para/puan değerleri hücre olmaz (dokunulmaz).
 public struct VehicleCell: Equatable {
@@ -28,8 +28,13 @@ public struct VehicleCell: Equatable {
     public var isValue: Bool
     /// Yalnızca etiket: Türkçenin sağa uzayabileceği en uzak kenar (değerin sol kenarından 0.02 önce), normalize.
     public var maxRight: Double?
-    public init(box: CGRect, source: String, translated: String?, isValue: Bool, maxRight: Double? = nil) {
-        self.box = box; self.source = source; self.translated = translated; self.isValue = isValue; self.maxRight = maxRight
+    /// Yalnızca liste (.menu): BÜYÜK HARF başlık hücresi mi (ör. STORY) — yoksa görev/öğe adı.
+    public var isHeader: Bool
+    /// Yalnızca liste (.menu): hücre zemin/yazı rengi ("#rrggbb"); NativeApp kareden örnekler, testte nil.
+    public var bg: String?
+    public var fg: String?
+    public init(box: CGRect, source: String, translated: String?, isValue: Bool, maxRight: Double? = nil, isHeader: Bool = false) {
+        self.box = box; self.source = source; self.translated = translated; self.isValue = isValue; self.maxRight = maxRight; self.isHeader = isHeader
     }
 }
 
@@ -54,7 +59,10 @@ public struct ScreenBlock: Equatable {
     public var rows: [[VehicleCell]] = []
     /// Araç paneli / istemler için izleyici anahtarı: her hücrenin kanonik (sözlük çevirisi ya da sadeleşmiş kaynak) metni.
     var vehicleSignature: String {
-        rows.flatMap { $0 }.map { $0.translated ?? TextMatch.normalize($0.source) }.joined(separator: "|")
+        let base = rows.flatMap { $0 }.map { $0.translated ?? TextMatch.normalize($0.source) }.joined(separator: "|")
+        // Liste kayınca aynı satırlar başka yere gelir: ilk satırın yaklaşık yeri imzaya girer (kaba kutu, titreme tetiklemesin).
+        if kind == .menu, let y = rows.first?.first?.box.minY { return base + "@" + String(Int((Double(y) / 0.03).rounded())) }
+        return base
     }
 }
 
@@ -200,7 +208,10 @@ public enum ScreenText {
             return (.game, blocks, nil)
         default:
             var blocks = descriptionBlocks(items)
-            if let p = promptDet?.block { blocks.append(p); blocks.sort { $0.box.minY < $1.box.minY } }
+            // Sol sütundaki liste (görev/öğe adları): açıklama kartının kullandığı satırlar listeye girmez.
+            if let m = detectMenu(items, avoid: blocks.map(\.box)) { blocks.append(m) }
+            if let p = promptDet?.block { blocks.append(p) }
+            blocks.sort { $0.box.minY < $1.box.minY }
             return (base, blocks, nil)
         }
     }
@@ -572,6 +583,95 @@ public enum ScreenText {
         return out.sorted { $0.box.minY < $1.box.minY }
     }
 
+    // MARK: Harita / menü listesi (sol sütun, yerinde çeviri)
+
+    /// Sol sütun BÜYÜK HARF başlıkları: İngilizce -> BÜYÜK HARF Türkçe. Anahtarlar TextMatch.normalize biçimindedir.
+    static let menuGlossary: [String: String] = [
+        "story": "HİKÂYE", "optional": "İSTEĞE BAĞLI", "lucia only": "YALNIZCA LUCIA", "jason only": "YALNIZCA JASON",
+        "personal": "KİŞİSEL", "vehicles": "ARAÇLAR", "weapons": "SİLAHLAR", "items": "EŞYALAR", "services": "HİZMETLER",
+        "transport": "ULAŞIM",
+    ]
+
+    /// Başlık sözlük çevirisi (OCR gürültüsüne karşı ≥0.85 bulanık eşleşme); yoksa nil.
+    public static func menuTranslation(_ text: String) -> String? {
+        let n = TextMatch.normalize(text)
+        guard !n.isEmpty else { return nil }
+        if let t = menuGlossary[n] { return t }
+        var best: (String, Int)?
+        for (k, v) in menuGlossary where TextMatch.isSimilar(n, k, threshold: 0.85) {
+            let d = abs(k.count - n.count)
+            if best == nil || d < best!.1 { best = (v, d) }
+        }
+        return best?.0
+    }
+
+    /// Simge artığı sayılmayacak gerçek kısa sözcükler ("Go Home", "To Do").
+    private static let shortRealWords: Set<String> = ["go", "to", "be", "do", "on", "in", "at", "no", "up", "as", "an", "if", "it", "is", "me", "my", "we", "so", "or", "of", "by", "i"]
+
+    /// Satır başındaki simge artıklarını (madde işareti, "-", "a"/"Er" gibi 1-2 harfli belirteç) atar; kutunun sol kenarı
+    /// atılan karakter oranında sağa kayar (simge yazının solundadır).
+    static func menuClean(_ text: String, x0: Double, x1: Double) -> (text: String, x0: Double) {
+        let orig = text.trimmingCharacters(in: .whitespaces)
+        var t = String(orig.drop(while: { !$0.isLetter && !$0.isNumber && $0 != "$" }))
+        let toks = t.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true).map(String.init)
+        if toks.count == 2, toks[1].first?.isUppercase == true,
+           (toks[0].count <= 2 && (toks[0].first?.isLowercase == true || !shortRealWords.contains(toks[0].lowercased())))
+            || (toks[0].count <= 3 && toks[0].contains { !$0.isLetter }) {
+            t = toks[1]
+        }
+        t = t.trimmingCharacters(in: .whitespaces)
+        guard !orig.isEmpty, t.count < orig.count else { return (t, x0) }
+        return (t, x0 + (x1 - x0) * Double(orig.count - t.count) / Double(orig.count))
+    }
+
+    /// Haritanın/menünün sol sütunundaki liste: BÜYÜK HARF başlıklar (STORY, OPTIONAL) ve görev/öğe adları. Her satır bir hücre.
+    /// Ad satırlarından ≥3'ü sol kenarda (±0.03) hizalıysa liste sayılır; değilse nil. `avoid`: açıklama kartı kutuları.
+    static func detectMenu(_ items: [L], avoid: [CGRect]) -> ScreenBlock? {
+        struct C { var text: String; var x0: Double; var y0: Double; var x1: Double; var y1: Double; var header: Bool; var h: Double { y1 - y0 } }
+        var titles: [C] = [], headers: [C] = []
+        for it in items where it.x0 < 0.40 {
+            let r = CGRect(x: it.x0, y: it.y0, width: it.x1 - it.x0, height: it.h)
+            if avoid.contains(where: { $0.insetBy(dx: -0.005, dy: -0.005).intersects(r) }) { continue }
+            let (t, x0) = menuClean(it.text, x0: it.x0, x1: it.x1)
+            guard letterCount(t) >= 3, let first = t.first, !matches(mapPromptRx, t), !matches(menuSelectRx, t), !matches(menuBackRx, t) else { continue }
+            let words = t.split(whereSeparator: \.isWhitespace).count
+            if isCapsOnly(t) {
+                if words <= 4 { headers.append(C(text: t, x0: x0, y0: it.y0, x1: it.x1, y1: it.y1, header: true)) }
+            } else if words <= 8, first.isUppercase, let last = t.last, !".!".contains(last) {
+                titles.append(C(text: t, x0: x0, y0: it.y0, x1: it.x1, y1: it.y1, header: false))
+            }
+        }
+        // Ad satırlarının en kalabalık sol hizası.
+        var ref: (x: Double, n: Int)?
+        for a in titles {
+            let n = titles.filter { abs($0.x0 - a.x0) <= 0.03 }.count
+            if ref == nil || n > ref!.n || (n == ref!.n && a.x0 < ref!.x) { ref = (a.x0, n) }
+        }
+        guard let r = ref, r.n >= 3, r.x <= 0.20 else { return nil }
+        let col = titles.filter { abs($0.x0 - r.x) <= 0.03 }
+        let top = col.map(\.y0).min()! - 0.12, bottom = col.map(\.y1).max()! + 0.02
+        let heads = headers.filter { $0.x0 <= r.x + 0.03 && $0.y0 >= top && $0.y1 <= bottom }
+        var cells = (col + heads).sorted { $0.y0 < $1.y0 }
+        // Üst üste binen satır (çift okuma) tek hücre olur.
+        var kept: [C] = []
+        for c in cells {
+            if let p = kept.last, min(p.y1, c.y1) - max(p.y0, c.y0) > 0.5 * min(p.h, c.h) { continue }
+            kept.append(c)
+        }
+        cells = kept
+        let maxRight = min(0.42, (cells.map(\.x1).max() ?? 0) + 0.02)
+        let rows = cells.map { c -> [VehicleCell] in
+            let box = CGRect(x: c.x0, y: c.y0, width: c.x1 - c.x0, height: c.h)
+            return [VehicleCell(box: box, source: c.text, translated: c.header ? menuTranslation(c.text) : nil, isValue: false,
+                                maxRight: maxRight, isHeader: c.header)]
+        }
+        let flat = rows.flatMap { $0 }
+        let box = flat.dropFirst().reduce(flat[0].box) { $0.union($1.box) }
+        let hs = flat.map { Double($0.box.height) }.sorted()
+        return ScreenBlock(kind: .menu, text: flat.map(\.source).joined(separator: "\n"), title: nil, speaker: nil, box: box,
+                           lineHeight: hs[hs.count / 2], slot: "menu", rows: rows)
+    }
+
     // MARK: Harita / menü
 
     private static func descriptionBlocks(_ items: [L]) -> [ScreenBlock] {
@@ -644,7 +744,7 @@ public struct ScreenTracker {
     private static func produces(_ mode: ScreenMode, _ kind: ScreenKind) -> Bool {
         switch mode {
         case .game: return kind == .objective || kind == .info || kind == .notify || kind == .vehicle || kind == .prompt
-        case .map, .menu: return kind == .description || kind == .prompt
+        case .map, .menu: return kind == .description || kind == .prompt || kind == .menu
         case .phone: return kind == .phone || kind == .prompt
         }
     }
@@ -672,8 +772,8 @@ public struct ScreenTracker {
             guard seen.insert(b.slot).inserted else { continue }
             var t = tracks[b.slot] ?? Track(kind: b.kind)
             t.absentSince = nil
-            if b.kind == .vehicle || b.kind == .prompt {
-                // Araç paneli / istemler: kanonik hücre metni birebir aynı 2 ardışık geçişte kararlı; sayfa/içerik değişince yeniden gönder.
+            if b.kind == .vehicle || b.kind == .prompt || b.kind == .menu {
+                // Araç paneli / istemler / liste: kanonik hücre metni birebir aynı 2 ardışık geçişte kararlı; sayfa/içerik değişince yeniden gönder.
                 let sig = b.vehicleSignature
                 if sig == t.candidate { t.stable += 1 } else { t.stable = 1 }
                 t.candidate = sig

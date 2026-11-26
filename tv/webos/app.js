@@ -6,7 +6,7 @@
   'use strict';
 
   // TV uygulamasının sürümü: appinfo.json, tv-tizen/config.xml ve tv-android/app/build.gradle ile aynı tutulur.
-  var APP_VERSION = '1.7.5';
+  var APP_VERSION = '1.7.6';
   var t = window.t;
   var config = window.GAMETRANSLATOR_CONFIG || window.GAMETRANSLATOR_CONFIG || {};
   var platform = window.GAMETRANSLATOR_PLATFORM || window.GAMETRANSLATOR_PLATFORM;
@@ -339,6 +339,7 @@
     // Ayna kartları en sona bırakılır: önce istemler çizilir ki kart onlarla çakışmasın. obstacles = başka öğelerin kutuları (px).
     var deferred = [];
     var promptRects = [];
+    var cells = [];
     var obstacles = [];
     for (var o = 0; o < (items || []).length; o++) {
       var ob = validBox(items[o] && items[o].box);
@@ -354,6 +355,10 @@
       if (!box || !item.text) continue;
       if (SUB.isPromptItem(item)) {
         if (regionEnabled(name)) showPromptItem(host, item, box, width, height, promptRects);
+        continue;
+      }
+      if (SUB.isCellItem(item)) {
+        if (regionEnabled(name)) cells.push(showCellItem(host, item, box, width, height));
         continue;
       }
       if (SUB.isLabelItem(item)) {
@@ -393,6 +398,13 @@
         size -= 2;
         el.style.fontSize = size + 'px';
       }
+    }
+    // Liste hücreleri birbirinin üstüne binmesin (komşu satırların payları çakışabilir).
+    if (cells.length > 1) {
+      var cellRects = [];
+      for (var cr = 0; cr < cells.length; cr++) cellRects.push(cells[cr].rect);
+      var resolved = SUB.cellResolve(cellRects);
+      for (var cq = 0; cq < cells.length; cq++) applyCellRect(cells[cq].el, resolved[cq]);
     }
     var mirrorRects = [];
     for (var d = 0; d < deferred.length; d++) {
@@ -594,6 +606,50 @@
     cover.el.style.textShadow = 'none';
     cover.covered = true;
     return cover;
+  }
+
+  // "label" + style:"cell": harita/menü listesi satırı. İngilizce satırın tam üstüne, oyunun kendi zemin (bg, opak) ve yazı (fg)
+  // renkleriyle çizilir; sol hizalı, dikey ortalı. BÜYÜK HARF başlık kalın dar yazı, ad satırı Roboto 500. Türkçe uzunsa sağa
+  // maxRight'a kadar uzar, sonra yazı %75'e kadar küçülür, son çare "…" (hesap SUB.cell*'de). Dönüş {el, rect}.
+  function applyCellRect(el, r) {
+    el.style.left = r.left + 'px';
+    el.style.top = r.top + 'px';
+    el.style.width = r.width + 'px';
+    el.style.height = r.height + 'px';
+    el.style.lineHeight = r.height + 'px';
+  }
+
+  function showCellItem(host, item, box, width, height) {
+    var g = SUB.cellGeometry(item, box, width, height);
+    var padX = Math.max(2, Math.round(SUB.CELL_PAD_X * width));
+    var el = document.createElement('div');
+    el.className = g.caps ? 'cell-text cell-caps' : 'cell-text';
+    var text = String(item.text);
+    el.textContent = g.caps ? (text.toLocaleUpperCase ? text.toLocaleUpperCase('tr') : text.toUpperCase()) : text;
+    el.style.background = SUB.hexColor(item.bg, '#3a356e');
+    el.style.color = SUB.hexColor(item.fg, '#ffffff');
+    el.style.paddingLeft = padX + 'px';
+    el.style.paddingRight = padX + 'px';
+    el.style.height = g.height + 'px';
+    el.style.lineHeight = g.height + 'px';
+    el.style.top = g.top + 'px';
+    el.style.left = g.left + 'px';
+    el.style.width = 'auto';
+    el.style.opacity = '0';
+    host.appendChild(el);
+    var fit = SUB.cellFit(g, function (size) {
+      el.style.fontSize = size + 'px';
+      el.style.width = 'auto';
+      return el.offsetWidth - 2 * padX;
+    }, padX);
+    el.style.fontSize = fit.fontSize + 'px';
+    el.style.textOverflow = fit.ellipsis ? 'ellipsis' : 'clip';
+    var rect = { left: g.left, top: g.top, width: fit.width, height: g.height };
+    applyCellRect(el, rect);
+    el.style.webkitTransition = 'opacity 120ms ease-out';
+    el.style.transition = 'opacity 120ms ease-out';
+    setTimeout(function () { el.style.opacity = '1'; }, 16);
+    return { el: el, rect: rect };
   }
 
   // "label": İngilizce arayüz satırını örten sıkı hücre (araç paneli). Tek satır, koyu arka planda beyaz kalın büyük harf;

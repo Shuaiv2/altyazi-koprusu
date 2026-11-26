@@ -22,10 +22,10 @@ func lines(_ rows: [Row]) -> [ScreenLine] {
 let psToast: Row = (0.411, 0.047, 0.589, 0.075, 1.0, "A Uzaktan Oynama baglandi.")
 let hud: [Row] = [(0.924, 0.026, 0.962, 0.054, 1.0, "$500"), (0.911, 0.059, 0.962, 0.090, 1.0, "$2,441")]
 
-/// Düğme istemleri (.prompt) çıkarılmış analiz: eski testler yalnızca diğer blokları denetler; istemler aşağıda ayrıca sınanır.
+/// Düğme istemleri (.prompt) ve sol liste (.menu) çıkarılmış analiz: eski testler yalnızca diğer blokları denetler; istemler aşağıda ayrıca sınanır.
 func analyzeNP(_ l: [ScreenLine], bubbleBlue: ((CGRect) -> Bool?)? = nil) -> (mode: ScreenMode, blocks: [ScreenBlock], phone: PhoneInfo?) {
     var r = ScreenText.analyze(l, bubbleBlue: bubbleBlue)
-    r.blocks.removeAll { $0.kind == .prompt }
+    r.blocks.removeAll { $0.kind == .prompt || $0.kind == .menu }
     return r
 }
 
@@ -477,6 +477,115 @@ do {
     f(a, 1); f(a, 2); expect(sends == 1, "istem izleyici: 2. geçişte bir kez")
     f(b, 3); f(b, 4); expect(sends == 2, "istem izleyici: küme değişince yeniden: \(sends)")
     f(nil, 5); f(nil, 7.1); expect(clears == 1, "istem izleyici: kaybolunca ≤2 sn'de temizlenir: \(clears)")
+}
+
+// --- Harita/menü listesi (.menu): sol sütun, yerinde çeviri. Gerçek OCR (araclar/izleme: kare 0129, eski/1122-1548 0047/0170/0478, eski/1122-1613 0121)
+let m129 = lines([
+    (0.016, 0.039, 0.073, 0.075, 1.00, "STORY"), (0.081, 0.121, 0.206, 0.142, 1.00, "Save for the Future"), (0.081, 0.181, 0.208, 0.202, 1.00, "Take Care Of Jason"),
+    (0.081, 0.240, 0.211, 0.266, 1.00, "Behind on Payments"), (0.080, 0.299, 0.145, 0.323, 1.00, "Earn Cash"), (0.080, 0.359, 0.193, 0.388, 1.00, "Painkiller Supplier"),
+    (0.080, 0.419, 0.180, 0.442, 1.00, "How Do I Look?"), (0.080, 0.478, 0.144, 0.502, 1.00, "New Look"), (0.052, 0.532, 0.111, 0.561, 1.00, "OPTIONAL"),
+    (0.061, 0.597, 0.076, 0.618, 0.30, "KM"), (0.080, 0.597, 0.256, 0.620, 1.00, "Check Out McKittrick Farm"), (0.080, 0.656, 0.170, 0.682, 1.00, "Pick Up a Gun"),
+    (0.097, 0.716, 0.244, 0.739, 1.00, "Sell a Vehicle to Moses"), (0.576, 0.341, 0.718, 0.372, 1.00, "SAVE FOR THE FUTURE"), (0.567, 0.398, 0.769, 0.426, 1.00, "Family Savings will earn interest"),
+    (0.547, 0.439, 0.770, 0.468, 1.00, "You are Buckin' Broke. Your family"), (0.547, 0.475, 0.767, 0.504, 1.00, "needs savings for a better future."), (0.547, 0.512, 0.767, 0.540, 1.00, "Contribute to your BuckMe Family"),
+    (0.546, 0.541, 0.783, 0.578, 1.00, "Savings account and reach the first"), (0.545, 0.582, 0.579, 0.614, 1.00, "goal."), (0.546, 0.628, 0.573, 0.649, 1.00, "GOAL"),
+    (0.712, 0.625, 0.782, 0.651, 1.00, "$700 / $5,000"), (0.565, 0.695, 0.641, 0.718, 1.00, "OPEN BUCKME"), (0.933, 0.119, 0.962, 0.150, 0.50, "$50"),
+    (0.924, 0.155, 0.962, 0.183, 1.00, "$252"), (0.905, 0.756, 0.959, 0.781, 1.00, "RECENTER"), (0.917, 0.806, 0.959, 0.830, 1.00, "2D VIEW"),
+    (0.961, 0.806, 0.978, 0.829, 0.30, "R3"), (0.891, 0.855, 0.961, 0.879, 1.00, "ADD MARKER"), (0.871, 0.902, 0.959, 0.925, 1.00, "SET DESTINATION"),
+    (0.894, 0.950, 0.959, 0.975, 1.00, "CLOSE MENU"),
+])
+let m47 = lines([
+    (0.016, 0.038, 0.096, 0.076, 1.00, "VEHICLES"), (0.914, 0.090, 0.962, 0.150, 0.30, "eamn"), (0.022, 0.227, 0.035, 0.248, 1.00, "S"),
+    (0.097, 0.124, 0.169, 0.150, 1.00, "Mod Shops"), (0.080, 0.180, 0.167, 0.210, 1.00, "Pay 'n' Sprays"), (0.083, 0.240, 0.163, 0.261, 1.00, "Gas Stations"),
+    (0.061, 0.300, 0.193, 0.326, 1.00, "Er Electric Chargers"), (0.051, 0.359, 0.119, 0.382, 1.00, "TRANSPORT"), (0.062, 0.418, 0.145, 0.448, 1.00, "a Bus Stops"),
+    (0.020, 0.532, 0.038, 0.561, 1.00, "44"), (0.905, 0.757, 0.961, 0.781, 1.00, "RECENTER"), (0.965, 0.755, 0.980, 0.780, 1.00, "L3"),
+    (0.916, 0.803, 0.980, 0.830, 1.00, "2D VIEW R3"), (0.891, 0.852, 0.959, 0.876, 1.00, "ADD MARKER"), (0.869, 0.902, 0.959, 0.925, 1.00, "SET DESTINATION"),
+    (0.894, 0.948, 0.959, 0.974, 1.00, "CLOSE MENU"),
+])
+let m170 = lines([
+    (0.016, 0.038, 0.105, 0.076, 1.00, "PERSONAL"), (0.019, 0.173, 0.038, 0.196, 0.50, "H"), (0.081, 0.124, 0.119, 0.143, 1.00, "Jason"),
+    (0.080, 0.181, 0.177, 0.204, 1.00, "Jason's Vehicle"), (0.083, 0.240, 0.166, 0.261, 1.00, "Dinka Enduro"), (0.080, 0.300, 0.166, 0.323, 0.50, "Bombora S23"),
+    (0.081, 0.359, 0.172, 0.380, 1.00, "Jason's House"), (0.924, 0.119, 0.962, 0.147, 1.00, "$500"), (0.020, 0.429, 0.038, 0.457, 0.50, "44"),
+    (0.905, 0.757, 0.980, 0.783, 1.00, "RECENTER L3"), (0.917, 0.806, 0.980, 0.830, 0.50, "2D VIEW R3"), (0.891, 0.855, 0.961, 0.879, 1.00, "ADD MARKER"),
+    (0.869, 0.902, 0.959, 0.925, 1.00, "SET DESTINATION"), (0.894, 0.951, 0.959, 0.974, 1.00, "CLOSE MENU"),
+])
+let m121 = lines([
+    (0.016, 0.038, 0.073, 0.076, 1.00, "STORY"), (0.019, 0.276, 0.038, 0.300, 0.50, "H"), (0.081, 0.121, 0.156, 0.145, 1.00, "Earn Money"),
+    (0.080, 0.181, 0.206, 0.204, 1.00, "Save for the Future"), (0.052, 0.237, 0.111, 0.267, 1.00, "OPTIONAL"), (0.096, 0.300, 0.260, 0.323, 1.00, "Recover Stashed Cocaine"),
+    (0.080, 0.359, 0.208, 0.385, 1.00, "Find the Lost Drugs"), (0.022, 0.519, 0.036, 0.563, 0.50, "49"), (0.483, 0.483, 0.517, 0.517, 0.30, "(5)"),
+    (0.480, 0.524, 0.522, 0.553, 1.00, "0.74 mi"), (0.576, 0.452, 0.714, 0.483, 1.00, "CATCH A BIGGER FISH"), (0.547, 0.501, 0.801, 0.527, 1.00, "Cal challenged you to catch a stoplight"),
+    (0.547, 0.537, 0.722, 0.563, 1.00, "parrotfish larger than 2 lbs."), (0.924, 0.118, 0.962, 0.150, 1.00, "8700"), (0.911, 0.152, 0.962, 0.186, 0.50, "$2.852"),
+    (0.906, 0.757, 0.980, 0.783, 1.00, "RECENTER L3"), (0.917, 0.803, 0.980, 0.830, 0.50, "2D VIEW R3"), (0.891, 0.852, 0.961, 0.879, 1.00, "ADD MARKER"),
+    (0.871, 0.902, 0.959, 0.928, 1.00, "SET DESTINATION"), (0.894, 0.951, 0.959, 0.974, 1.00, "CLOSE MENU"),
+])
+let m478 = lines([
+    (0.016, 0.038, 0.073, 0.075, 1.00, "STORY"), (0.080, 0.123, 0.156, 0.148, 1.00, "Earn Money"), (0.080, 0.181, 0.224, 0.209, 1.00, "Find Donnie's Package"),
+    (0.083, 0.240, 0.257, 0.266, 1.00, "• Deposit Cash Into BuckM"), (0.096, 0.300, 0.222, 0.323, 1.00, "Save for the Future"), (0.097, 0.359, 0.166, 0.383, 1.00, "Meet Brian"),
+    (0.575, 0.433, 0.659, 0.466, 1.00, "EARN MONEY"), (0.547, 0.483, 0.772, 0.509, 1.00, "Bring in some money by any means"), (0.547, 0.519, 0.778, 0.545, 1.00, "necessary while Lucia deals with her"),
+    (0.547, 0.556, 0.676, 0.579, 1.00, "community service."), (0.942, 0.124, 0.961, 0.147, 1.00, "SO"), (0.924, 0.155, 0.962, 0.183, 1.00, "$500"),
+    (0.905, 0.757, 0.961, 0.781, 1.00, "RECENTER"), (0.917, 0.806, 0.959, 0.829, 1.00, "2D VIEW"), (0.891, 0.852, 0.961, 0.879, 1.00, "ADD MARKER"),
+    (0.871, 0.902, 0.959, 0.925, 1.00, "SET DESTINATION"), (0.894, 0.950, 0.959, 0.975, 1.00, "CLOSE MENU"), (0.965, 0.804, 0.980, 0.829, 0.30, "R3"),
+])
+
+func menuOf(_ r: (mode: ScreenMode, blocks: [ScreenBlock], phone: PhoneInfo?)) -> ScreenBlock? { r.blocks.first { $0.kind == .menu } }
+func menuSources(_ b: ScreenBlock?) -> [String] { b?.rows.flatMap { $0 }.map(\.source) ?? [] }
+let rl129 = ScreenText.analyze(m129)
+expect(rl129.mode == .map, "liste 0129 mod: \(rl129.mode)")
+let mb129 = menuOf(rl129)
+expect(menuSources(mb129) == ["STORY", "Save for the Future", "Take Care Of Jason", "Behind on Payments", "Earn Cash", "Painkiller Supplier", "How Do I Look?",
+                              "New Look", "OPTIONAL", "Check Out McKittrick Farm", "Pick Up a Gun", "Sell a Vehicle to Moses"], "liste 0129 hücreler: \(menuSources(mb129))")
+expect(mb129?.slot == "menu" && mb129?.kind == .menu, "liste slot")
+expect(mb129?.rows.flatMap { $0 }.filter(\.isHeader).map(\.source) == ["STORY", "OPTIONAL"] && mb129?.rows.flatMap { $0 }.filter(\.isHeader).compactMap(\.translated) == ["HİKÂYE", "İSTEĞE BAĞLI"], "liste başlıklar sözlükten")
+expect(mb129?.rows.flatMap { $0 }.filter { !$0.isHeader }.allSatisfy { $0.translated == nil } == true, "liste adlar çeviriciye kalır")
+expect(mb129?.rows.flatMap { $0 }.allSatisfy { ($0.maxRight ?? 0) > Double($0.box.maxX) && ($0.maxRight ?? 1) <= 0.42 } == true, "liste maxRight sütun sağı (≤0.42): \(mb129?.rows[0][0].maxRight ?? -1)")
+expect(mb129.map { $0.box.minX < 0.02 && $0.box.maxX < 0.30 } == true, "liste kutusu sol sütunda: \(String(describing: mb129?.box))")
+// Açıklama kartı ve istemler değişmedi; liste onların satırlarını almaz
+let d129 = rl129.blocks.first { $0.kind == .description }
+expect(d129?.title == "SAVE FOR THE FUTURE" && d129?.text.hasPrefix("Family Savings will earn interest") == true && d129?.text.contains("Contribute to your BuckMe Family Savings account") == true, "liste 0129: açıklama korunur: \(d129?.text ?? "nil")")
+expect(rl129.blocks.filter { $0.kind == .description }.count == 1, "liste 0129: tek açıklama")
+expect(promptSources(promptOf(rl129)) == ["OPEN BUCKME", "RECENTER", "2D VIEW", "ADD MARKER", "SET DESTINATION", "CLOSE MENU"], "liste 0129: istemler: \(promptSources(promptOf(rl129)))")
+expect(!menuSources(mb129).contains { $0.contains("GOAL") || $0.contains("$") || $0 == "KM" }, "liste: sağ/rakam/KM yok")
+// Diğer harita kareleri: simge artıkları, madde işareti, 1-2 harfli çöp
+let mb47 = menuOf(ScreenText.analyze(m47))
+expect(menuSources(mb47) == ["VEHICLES", "Mod Shops", "Pay 'n' Sprays", "Gas Stations", "Electric Chargers", "TRANSPORT", "Bus Stops"], "liste 0047: \(menuSources(mb47))")
+expect(mb47?.rows[0][0].translated == "ARAÇLAR" && mb47?.rows.flatMap { $0 }.first { $0.source == "TRANSPORT" }?.translated == "ULAŞIM", "liste 0047 başlık çevirisi")
+let el = mb47?.rows.flatMap { $0 }.first { $0.source == "Electric Chargers" }
+expect(el.map { $0.box.minX > 0.075 && $0.box.minX < 0.095 } == true, "liste: simge payı kutudan düşer: \(el?.box.minX ?? -1)")
+let mb170 = menuOf(ScreenText.analyze(m170))
+expect(menuSources(mb170) == ["PERSONAL", "Jason", "Jason's Vehicle", "Dinka Enduro", "Bombora S23", "Jason's House"], "liste 0170: \(menuSources(mb170))")
+expect(mb170?.rows[0][0].translated == "KİŞİSEL", "liste PERSONAL")
+let mb121 = menuOf(ScreenText.analyze(m121))
+expect(menuSources(mb121) == ["STORY", "Earn Money", "Save for the Future", "OPTIONAL", "Recover Stashed Cocaine", "Find the Lost Drugs"], "liste 0121: \(menuSources(mb121))")
+let mb478 = menuOf(ScreenText.analyze(m478))
+expect(menuSources(mb478) == ["STORY", "Earn Money", "Find Donnie's Package", "Deposit Cash Into BuckM", "Save for the Future", "Meet Brian"], "liste 0478: \(menuSources(mb478))")
+// Kısa listeler (2 ad) ve oyun modu liste üretmez
+expect(menuOf(ScreenText.analyze(lines([(0.016, 0.039, 0.073, 0.075, 1.0, "STORY"), (0.081, 0.121, 0.206, 0.142, 1.0, "Save for the Future"), (0.080, 0.181, 0.208, 0.202, 1.0, "Earn Cash"),
+    (0.905, 0.757, 0.961, 0.781, 1.0, "RECENTER")]))) == nil, "liste: <3 ad liste değil")
+let gameList = lines([(0.016, 0.039, 0.073, 0.075, 1.0, "STORY"), (0.081, 0.121, 0.206, 0.142, 1.0, "Save for the Future"), (0.080, 0.181, 0.208, 0.202, 1.0, "Take Care Of Jason"),
+    (0.080, 0.240, 0.211, 0.266, 1.0, "Behind on Payments"), (0.080, 0.299, 0.145, 0.323, 1.0, "Earn Cash")])
+let rgl = ScreenText.analyze(gameList)
+expect(rgl.mode == .game && menuOf(rgl) == nil, "liste: oyun modunda yok: \(rgl.mode)")
+// Rastgele hizasız sol-metinler (harita etiketleri) liste olmaz
+let scatter = lines([(0.020, 0.300, 0.140, 0.324, 1.0, "Vice Beach"), (0.200, 0.400, 0.330, 0.424, 1.0, "Ocean Drive"), (0.090, 0.500, 0.210, 0.524, 1.0, "Little Havana"),
+    (0.905, 0.757, 0.961, 0.781, 1.0, "RECENTER")])
+expect(menuOf(ScreenText.analyze(scatter)) == nil, "liste: hizasız etiketler liste değil")
+// Menü modunda sol liste (kare 0183)
+let l183 = ScreenText.analyze(lines([(0.910, 0.126, 0.981, 0.147, 1.0, "CHAPTER 1"), (0.026, 0.287, 0.086, 0.310, 1.0, "Im) Game"), (0.032, 0.352, 0.082, 0.375, 1.0, "• Store"),
+    (0.045, 0.421, 0.076, 0.447, 1.0, "Help"), (0.025, 0.486, 0.129, 0.509, 1.0, "[ Photo Studio"), (0.023, 0.550, 0.100, 0.581, 1.0, "ii Settings"),
+    (0.760, 0.951, 0.836, 0.974, 1.0, "PHOTO STUDIO"), (0.863, 0.951, 0.903, 0.974, 1.0, "SELECT"), (0.930, 0.951, 0.959, 0.974, 1.0, "BACK")]))
+expect(l183.mode == .menu && menuSources(menuOf(l183)) == ["Game", "Store", "Help", "Photo Studio", "Settings"], "liste 0183 menü: \(menuSources(menuOf(l183)))")
+// İzleyici: liste yuvası 2 geçişte gönderilir, küme değişince yeniden, kaybolunca ≤2 sn'de temizlenir; oyun moduna dönünce hemen
+do {
+    var tm = ScreenTracker()
+    let a = mb129!
+    var b = a; b.rows.removeLast()
+    var sends = 0, clears = 0
+    func f(_ x: ScreenBlock?, _ t: Double, _ m: ScreenMode = .map) { for act in tm.feed(x.map { [$0] } ?? [], mode: m, at: t) { if case .translate = act { sends += 1 }; if case .clear = act { clears += 1 } } }
+    f(a, 0); expect(sends == 0, "liste izleyici: ilk geçiş çevrilmez")
+    f(a, 1); f(a, 2); expect(sends == 1, "liste izleyici: 2. geçişte bir kez")
+    f(b, 3); f(b, 4); expect(sends == 2, "liste izleyici: küme değişince yeniden: \(sends)")
+    f(nil, 5); f(nil, 7.1); expect(clears == 1, "liste izleyici: kaybolunca ≤2 sn'de temizlenir: \(clears)")
+    f(b, 8, .map); f(b, 9, .map); expect(sends == 3, "liste izleyici: yeniden görününce gönderilir: \(sends)")
+    f(nil, 10, .game); f(nil, 11, .game); expect(clears == 2, "liste izleyici: oyun moduna dönünce hemen temizlenir: \(clears)")
 }
 // Para kesri
 expect(ScreenText.normalizeMoneyFraction("$1,400 1 $5,000") == "$1,400 / $5,000" && ScreenText.normalizeMoneyFraction("$1,400 | $5,000") == "$1,400 / $5,000"

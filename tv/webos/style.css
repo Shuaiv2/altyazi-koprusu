@@ -100,6 +100,21 @@ html, body {
   font-weight: 700;
   border-radius: 3px;
 }
+/* "label" + style:"cell": harita/menü listesi satırı; renkler satır içi, İngilizce satırın tam üstünü örter */
+#screen .cell-text {
+  position: absolute;
+  box-sizing: border-box;
+  white-space: nowrap;
+  overflow: hidden;
+  text-align: left;
+  font-family: Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 500;
+}
+#screen .cell-caps {
+  font-family: 'sans-serif-condensed', 'Roboto Condensed', 'Arial Narrow', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
 /* "beside": telefonun yanındaki sohbet paneli */
 #screen .chat-panel {
   position: absolute;

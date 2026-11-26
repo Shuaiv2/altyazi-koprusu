@@ -1790,6 +1790,10 @@ final class AppState {
     @ObservationIgnored private var promptItems: [[String: Any]] = []
     /// İstem MT önbelleği: kaynak -> Türkçe (BÜYÜK HARF); boş dize = çeviri kaynakla aynı (ad), atlanır.
     @ObservationIgnored private var promptMTCache: [String: String] = [:]
+    /// Harita/menü listesi: hücre başına bir TV öğesi (yuva "menu").
+    @ObservationIgnored private var menuItems: [[String: Any]] = []
+    /// Liste MT önbelleği: kaynak -> Türkçe; boş dize = çeviri kaynakla aynı (ad), atlanır.
+    @ObservationIgnored private var menuMTCache: [String: String] = [:]
     @ObservationIgnored private var screenGen: [String: Int] = [:]
     @ObservationIgnored private var lastScreenMode: ScreenMode = .game
     /// Ekran geçişinin (debounce edilmiş) modu menu/map/phone iken altyazı hattı susturulur.
@@ -2911,7 +2915,7 @@ final class AppState {
         case .objective: return objectiveEnabled
         case .info, .vehicle, .prompt: return infoEnabled
         case .notify: return notifyEnabled
-        case .description: return descriptionEnabled
+        case .description, .menu: return descriptionEnabled
         case .phone: return notifyEnabled
         }
     }
@@ -2941,7 +2945,18 @@ final class AppState {
                 }
             }
             let ms = Int(Date().timeIntervalSince(started) * 1000)
-            let result = ScreenText.analyze(lines, bubbleBlue: { BubbleColor.isBlueBubble(in: frame, rect: $0) })
+            var result = ScreenText.analyze(lines, bubbleBlue: { BubbleColor.isBlueBubble(in: frame, rect: $0) })
+            // Liste hücreleri: satır kutusundan (biraz genişletilmiş) zemin/yazı rengi; seçili satır beyaz zemin + koyu yazı çıkar.
+            for bi in result.blocks.indices where result.blocks[bi].kind == .menu {
+                for ri in result.blocks[bi].rows.indices {
+                    for ci in result.blocks[bi].rows[ri].indices {
+                        let area = result.blocks[bi].rows[ri][ci].box.insetBy(dx: -0.004, dy: -0.003)
+                        if let c = BubbleColor.mirrorColors(in: frame, box: area) {
+                            result.blocks[bi].rows[ri][ci].bg = c.bg; result.blocks[bi].rows[ri][ci].fg = c.fg
+                        }
+                    }
+                }
+            }
             // Kart/kutu bölgesinin açık ya da koyu zemini (TV'deki Türkçe kartın temasını seçer).
             var themes: [String: String] = [:]
             for b in result.blocks { themes[b.slot] = Self.theme(of: frame, box: b.box) }
@@ -3022,6 +3037,7 @@ final class AppState {
         if !b.messages.isEmpty { await translatePhoneConversation(b, gen: gen, theme: theme, colors: colors, dbg: dbg); return }
         if b.kind == .vehicle { await translateVehicleBlock(b, gen: gen, theme: theme, dbg: dbg); return }
         if b.kind == .prompt { await translatePromptBlock(b, gen: gen, theme: theme, dbg: dbg); return }
+        if b.kind == .menu { await translateMenuBlock(b, gen: gen, theme: theme, dbg: dbg); return }
         // Gövde "\n" ile ayrılmış parçalardan oluşabilir (başlık/gövde); her parça ayrı çevrilir.
         // Harfsiz parça (para/sayı/kesir) çevirmene gitmez; "GOAL $1,400 / $5,000" için yalnızca sözcük kısmı çevrilir.
         var parts: [String] = []
@@ -3142,6 +3158,53 @@ final class AppState {
         }
     }
 
+    /// Harita/menü listesi: BÜYÜK HARF başlıklar sözlükten (yoksa çevirmen, büyük harf); ad satırları çevirmenle (özel adlar
+    /// çeviri kaynakla aynı çıkarsa atlanır). Kaynak başına bellek önbelleği. TV her hücreyi İngilizcenin tam üstüne çizer.
+    private func translateMenuBlock(_ b: ScreenBlock, gen: Int, theme: String, dbg: Bool) async {
+        var items: [[String: Any]] = []
+        var shown: [String] = []
+        let tr = Locale(identifier: "tr")
+        func fold(_ s: String) -> String { s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
+        // OCR kutu yüksekliği satırdan satıra ±%20 oynar; yazı boyu titremesin diye başlık ve ad satırları ayrı ayrı medyan alır.
+        func median(_ hs: [Double]) -> Double? { hs.isEmpty ? nil : hs.sorted()[hs.count / 2] }
+        let cellsAll = b.rows.flatMap { $0 }
+        let headLine = median(cellsAll.filter(\.isHeader).map { Double($0.box.height) })
+        let itemLine = median(cellsAll.filter { !$0.isHeader }.map { Double($0.box.height) })
+        for row in b.rows {
+            for c in row {
+                var text = c.translated
+                if text == nil {
+                    var mt: String? = await MainActor.run { self.menuMTCache[c.source] }
+                    if mt == nil {
+                        let r = await translateText(GameEnglish.plain(c.isHeader ? c.source.capitalized : c.source))
+                        guard let t = r.text, !t.isEmpty else { await MainActor.run { self.screenTracker.forgetShown(slot: b.slot) }; return }
+                        let out = c.isHeader ? t.uppercased(with: tr) : t
+                        mt = fold(out) == fold(c.source) ? "" : out
+                        let store = mt!
+                        await MainActor.run { self.menuMTCache[c.source] = store }
+                    }
+                    if mt!.isEmpty { continue }   // ad: çevrilmez
+                    text = mt!
+                }
+                var item: [String: Any] = ["text": text!, "source": c.source, "placement": "label", "style": "cell", "theme": theme,
+                                           "line": (c.isHeader ? headLine : itemLine) ?? Double(c.box.height), "caps": c.isHeader,
+                                           "box": ["left": Double(c.box.minX), "top": Double(c.box.minY), "right": Double(c.box.maxX), "bottom": Double(c.box.maxY)]]
+                if let mr = c.maxRight { item["maxRight"] = mr }
+                if let bg = c.bg, let fg = c.fg { item["bg"] = bg; item["fg"] = fg }
+                items.append(item)
+                shown.append(text!)
+            }
+        }
+        let finalItems = items, finalShown = shown.joined(separator: " ")
+        await MainActor.run {
+            guard self.isRunning, self.screenGen[b.slot] == gen else { return }
+            self.menuItems = finalItems
+            self.screenItems[b.slot] = ["text": finalShown]
+            self.screenKinds[b.slot] = b.kind
+            self.sendScreenKind(b.kind)
+        }
+    }
+
     /// Açık telefon konuşması: her balon ayrı çevrilir; TV'ye telefonun yanında tek "beside" sohbet paneli gider.
     private func translatePhoneConversation(_ b: ScreenBlock, gen: Int, theme: String, colors: (bg: String, fg: String)? = nil, dbg: Bool) async {
         var msgs: [[String: Any]] = []
@@ -3171,7 +3234,8 @@ final class AppState {
     private func sendScreenKind(_ kind: ScreenKind) {
         let slots = screenKinds.filter { $0.value == kind }.map(\.key).sorted()
         let items: [[String: Any]] = kind == .vehicle ? (slots.isEmpty ? [] : vehicleItems)
-            : kind == .prompt ? (slots.isEmpty ? [] : promptItems) : slots.compactMap { screenItems[$0] }
+            : kind == .prompt ? (slots.isEmpty ? [] : promptItems)
+            : kind == .menu ? (slots.isEmpty ? [] : menuItems) : slots.compactMap { screenItems[$0] }
         if items.isEmpty { server.clearScreen(region: kind.rawValue); if screenItems.isEmpty { liveInfo = "" } }
         else { server.sendScreen(region: kind.rawValue, items: items, durationMs: kind == .vehicle ? 60000 : 15000) }
     }
